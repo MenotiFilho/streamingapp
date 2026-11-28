@@ -1197,3 +1197,71 @@ fn a_client_that_mistypes_the_code_too_often_is_hung_up_on() {
     assert_eq!(refusals, 5, "five wrong codes are five refusals");
     assert!(closed, "the Host hangs up rather than guessing forever");
 }
+
+#[test]
+fn set_addon_enabled_broadcasts_the_change_and_refuses_open_title_while_disabled() {
+    let fetcher = Arc::new(
+        FixtureFetcher::new()
+            .serving(MANIFEST_URL, MANIFEST)
+            .serving(MOVIE_URL, MOVIE),
+    );
+    let (fixture, server) = server_over(fetcher);
+    let mut client = Client::connect(&server);
+    client.hello(None);
+    pair(&mut client, &fixture, "Test phone");
+
+    let added = client.command(2, json!({ "type": "add_addon", "url": MANIFEST_URL }));
+    assert!(
+        added.get("response").is_some(),
+        "add_addon succeeds: {added}"
+    );
+    let initial = client.snapshot_where(|snapshot| {
+        snapshot["addons"]
+            .as_array()
+            .is_some_and(|addons| addons.len() == 1 && addons[0]["id"] == "com.linvo.cinemeta")
+    });
+    assert_eq!(initial["snapshot"]["addons"][0]["enabled"], true);
+
+    let disabled = client.command(
+        3,
+        json!({
+            "type": "set_addon_enabled",
+            "addon": "com.linvo.cinemeta",
+            "enabled": false,
+        }),
+    );
+    assert!(
+        disabled.get("response").is_some(),
+        "set_addon_enabled(false) succeeds: {disabled}"
+    );
+    let pushed = client.snapshot_where(|snapshot| {
+        snapshot["addons"][0]["id"] == "com.linvo.cinemeta"
+            && snapshot["addons"][0]["enabled"] == false
+    });
+    assert_eq!(pushed["snapshot"]["addons"][0]["enabled"], false);
+
+    let refused = client.command(4, open_movie());
+    assert_eq!(refused["error"]["kind"], "addon_disabled");
+    assert_eq!(refused["error"]["id"], "com.linvo.cinemeta");
+
+    let enabled = client.command(
+        5,
+        json!({
+            "type": "set_addon_enabled",
+            "addon": "com.linvo.cinemeta",
+            "enabled": true,
+        }),
+    );
+    assert!(
+        enabled.get("response").is_some(),
+        "set_addon_enabled(true) succeeds: {enabled}"
+    );
+    let restored = client.snapshot_where(|snapshot| {
+        snapshot["addons"][0]["id"] == "com.linvo.cinemeta"
+            && snapshot["addons"][0]["enabled"] == true
+    });
+    assert_eq!(restored["snapshot"]["addons"][0]["enabled"], true);
+
+    let opened = client.command(6, open_movie());
+    assert_eq!(opened["response"]["answer"]["title"]["name"], "The Matrix");
+}

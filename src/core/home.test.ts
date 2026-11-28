@@ -190,6 +190,7 @@ describe("the Home hero and Continue watching art", () => {
       ],
       idPrefixes: ["tt"],
       behaviorHints: { configurable: false, configurationRequired: false },
+      enabled: true,
     };
     const snapshot: Snapshot = {
       ...EMPTY,
@@ -239,6 +240,7 @@ describe("the Home hero and Continue watching art", () => {
           catalogs: [],
           idPrefixes: [],
           behaviorHints: { configurable: false, configurationRequired: false },
+          enabled: true,
         },
       ],
     };

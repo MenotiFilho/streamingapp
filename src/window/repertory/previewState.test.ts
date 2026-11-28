@@ -20,6 +20,7 @@ const CINEMETA: AddonManifest = {
   catalogs: [],
   idPrefixes: ["tt"],
   behaviorHints: { configurable: false, configurationRequired: false },
+  enabled: true,
 };
 
 const TORRENTIO: AddonManifest = {
@@ -75,6 +76,7 @@ describe("the preview's manifest reader", () => {
       ],
       idPrefixes: ["tt"],
       behaviorHints: { configurable: true, configurationRequired: false },
+      enabled: true,
     });
   });
 

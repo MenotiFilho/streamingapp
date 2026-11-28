@@ -13,6 +13,7 @@ const CINEMETA: AddonManifest = {
   catalogs: [],
   idPrefixes: ["tt"],
   behaviorHints: { configurable: false, configurationRequired: false },
+  enabled: true,
 };
 
 const TORRENTIO: AddonManifest = {
@@ -55,6 +56,15 @@ describe("the account Library's Addon bridge", () => {
       idPrefixes: [],
     };
     expect(libraryAddon([anyId], { id: "anything", type: "movie" })?.id).toBe(anyId.id);
+  });
+
+  it("skips disabled Addons when picking who opens a library Title", () => {
+    const disabled: AddonManifest = { ...CINEMETA, enabled: false };
+    const fallback: AddonManifest = { ...CINEMETA, id: "org.example.meta", enabled: true };
+    expect(libraryAddon([disabled], { id: "tt0133093", type: "movie" })).toBeNull();
+    expect(libraryAddon([disabled, fallback], { id: "tt0133093", type: "movie" })?.id).toBe(
+      fallback.id,
+    );
   });
 
   it("carries only the card's identity and art into the Title screen", () => {

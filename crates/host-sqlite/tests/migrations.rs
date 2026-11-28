@@ -409,3 +409,30 @@ fn a_database_at_the_tenth_schema_gains_title_logo_with_its_rows_intact() {
         Some("https://images.example.org/matrix-logo.png")
     );
 }
+
+#[test]
+fn a_database_at_the_eleventh_schema_upgrades_existing_addons_as_enabled() {
+    // Migration 12 (ADR-0044 §2): every Addon configured before `enabled`
+    // existed upgrades as enabled (`1`).
+    let mut connection = connection();
+    migrate(&mut connection, &MIGRATIONS[..11]).expect("the eleventh schema applies");
+    connection
+        .execute(
+            "INSERT INTO addons (id, position, url, manifest)
+             VALUES ('com.linvo.cinemeta', 0, 'https://v3-cinemeta.strem.io/manifest.json', '{}')",
+            [],
+        )
+        .expect("the eleventh schema takes an Addon");
+    assert_eq!(schema_version(&connection), Ok(11));
+
+    let version = migrate(&mut connection, MIGRATIONS).expect("the database upgrades");
+
+    assert_eq!(version, latest_version(MIGRATIONS));
+    let (id, enabled): (String, i64) = connection
+        .query_row("SELECT id, enabled FROM addons", [], |row| {
+            Ok((row.get(0)?, row.get(1)?))
+        })
+        .expect("the Addon written before the upgrade is still there");
+    assert_eq!(id, "com.linvo.cinemeta");
+    assert_eq!(enabled, 1, "existing Addons upgrade as enabled");
+}

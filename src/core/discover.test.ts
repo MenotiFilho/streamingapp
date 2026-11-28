@@ -52,6 +52,7 @@ function addon(overrides: Partial<AddonManifest> = {}): AddonManifest {
     catalogs: [],
     idPrefixes: [],
     behaviorHints: { configurable: false, configurationRequired: false },
+    enabled: true,
     ...overrides,
   };
 }
@@ -404,5 +405,36 @@ describe("whether a Discovered Title could ever be played", () => {
       ),
     ).toBe(false);
     expect(discoverPlayable([], MOVIE)).toBe(false);
+  });
+
+  test("a disabled stream Addon is skipped", () => {
+    expect(
+      discoverPlayable(
+        [
+          addon({
+            enabled: false,
+            resources: [{ name: "stream", types: ["movie"], idPrefixes: ["tt"] }],
+          }),
+        ],
+        MOVIE,
+      ),
+    ).toBe(false);
+    expect(
+      discoverPlayable(
+        [
+          addon({
+            id: "org.example.off",
+            enabled: false,
+            resources: [{ name: "stream", types: ["movie"], idPrefixes: ["tt"] }],
+          }),
+          addon({
+            id: "org.example.on",
+            enabled: true,
+            resources: [{ name: "stream", types: ["movie"], idPrefixes: ["tt"] }],
+          }),
+        ],
+        MOVIE,
+      ),
+    ).toBe(true);
   });
 });

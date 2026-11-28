@@ -1,6 +1,6 @@
 use serde::{Deserialize, Serialize};
 
-use crate::addon::Manifest;
+use crate::addon::{Addon, AddonId, BehaviorHints, Catalog, Manifest, Resource};
 use crate::autoplay::AutoplaySnapshot;
 use crate::device::DeviceSummary;
 use crate::pairing::PairingCode;
@@ -36,10 +36,11 @@ pub struct Snapshot {
     /// not an answer.
     pub playback: PlaybackSnapshot,
     pub preferences: PreferencesSnapshot,
-    /// The configured Addons, as what they say they offer. Never where they live:
-    /// an Addon's manifest URL can carry its credentials, and a Snapshot reaches
-    /// every paired client (ADR-0009).
-    pub addons: Vec<Manifest>,
+    /// The configured Addons, as what they say they offer and whether each is
+    /// enabled. Never where they live: an Addon's manifest URL can carry its
+    /// credentials, and a Snapshot reaches every paired client (ADR-0009,
+    /// ADR-0044 §1–§2).
+    pub addons: Vec<AddonSnapshot>,
     /// The one Catalog the owner has marked as the Host's featured feed, where
     /// there is one: the row a client's Home hero is drawn from, its first items
     /// in the Addon's own order. A preference of the Host's rather than a
@@ -76,6 +77,51 @@ pub struct Snapshot {
     /// the window reads out so a person knows where to point a browser. Nothing
     /// when the Host has no wire server (a test, or a Host that could not bind).
     pub address: Option<String>,
+}
+
+/// One configured Addon as a Snapshot carries it: what its manifest says it
+/// offers, and whether the owner has it enabled (ADR-0009, ADR-0044 §1–§2).
+///
+/// Never where its manifest lives: the URL is a credential by presumption and
+/// has no field here.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct AddonSnapshot {
+    pub id: AddonId,
+    pub name: String,
+    pub version: String,
+    pub resources: Vec<Resource>,
+    pub types: Vec<String>,
+    pub catalogs: Vec<Catalog>,
+    pub id_prefixes: Vec<String>,
+    pub behavior_hints: BehaviorHints,
+    pub enabled: bool,
+}
+
+impl AddonSnapshot {
+    pub(crate) fn from_addon(addon: &Addon) -> Self {
+        let Manifest {
+            id,
+            name,
+            version,
+            resources,
+            types,
+            catalogs,
+            id_prefixes,
+            behavior_hints,
+        } = addon.manifest().clone();
+        Self {
+            id,
+            name,
+            version,
+            resources,
+            types,
+            catalogs,
+            id_prefixes,
+            behavior_hints,
+            enabled: addon.is_enabled(),
+        }
+    }
 }
 
 /// The preference fields a client may see.
@@ -168,29 +214,35 @@ impl Snapshot {
             addons: state
                 .addons()
                 .iter()
-                .map(|addon| addon.manifest().clone())
+                .map(AddonSnapshot::from_addon)
                 .collect(),
-            featured_catalog: state.preferences().featured_catalog().cloned(),
+            // Keep the stored preference when its Addon is disabled, but hide
+            // it from the published Snapshot so no client draws a Home hero
+            // from a disabled Addon; re-enabling restores it (ADR-0044 §2).
+            featured_catalog: state
+                .preferences()
+                .featured_catalog()
+                .filter(|featured| state.is_addon_enabled(&featured.addon))
+                .cloned(),
             protection: ProtectionSnapshot {
                 backend: state.protection().backend,
                 tmdb_held: state.protection().tmdb_held,
                 stremio_held: state.protection().stremio_held,
             },
             continue_watching: crate::progress::continue_watching(state.watch(), cached, |addon| {
-                state.has_addon(addon)
+                state.addon_unplayable(addon)
             }),
             watch_progress: state
                 .watch()
                 .iter()
                 .map(|entry| {
                     // A Title with no Addon behind it is never marked: there is
-                    // no removal to judge (ADR-0020).
-                    entry.resume_entry(
-                        entry
-                            .title
-                            .addon()
-                            .is_none_or(|addon| state.has_addon(addon)),
-                    )
+                    // no removal or disable to judge (ADR-0020, ADR-0044 §2).
+                    let reason = entry
+                        .title
+                        .addon()
+                        .and_then(|addon| state.addon_unplayable(addon));
+                    entry.resume_entry(reason)
                 })
                 .collect(),
             devices: state

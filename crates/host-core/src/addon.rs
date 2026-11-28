@@ -334,14 +334,16 @@ pub struct BehaviorHints {
     pub configuration_required: bool,
 }
 
-/// An Addon the Host is configured with: where its manifest lives, and the
-/// manifest itself.
+/// An Addon the Host is configured with: where its manifest lives, the
+/// manifest itself, and whether the owner currently has it enabled.
 ///
-/// The two travel together, and only the second one is ever published.
+/// The URL never leaves the Host; the manifest and `enabled` are published
+/// together in [`crate::AddonSnapshot`] (ADR-0009, ADR-0044 §2).
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Addon {
     manifest_url: ManifestUrl,
     manifest: Manifest,
+    enabled: bool,
 }
 
 impl Addon {
@@ -349,7 +351,16 @@ impl Addon {
         Self {
             manifest_url,
             manifest,
+            enabled: true,
         }
+    }
+
+    /// The same Addon, explicitly enabled or disabled — for reading from the
+    /// store or building fixtures.
+    #[must_use]
+    pub fn with_enabled(mut self, enabled: bool) -> Self {
+        self.enabled = enabled;
+        self
     }
 
     pub fn manifest_url(&self) -> &ManifestUrl {
@@ -362,6 +373,14 @@ impl Addon {
 
     pub fn id(&self) -> &AddonId {
         &self.manifest.id
+    }
+
+    pub fn is_enabled(&self) -> bool {
+        self.enabled
+    }
+
+    pub fn set_enabled(&mut self, enabled: bool) {
+        self.enabled = enabled;
     }
 }
 
