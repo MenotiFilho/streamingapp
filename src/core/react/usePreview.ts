@@ -69,6 +69,20 @@ export type PreviewReads = {
 /** The Session's ask, as the preview needs it. */
 export type PreviewAsk = (action: Action) => Promise<ActionOutcome>;
 
+function nextStill(
+  current: PreviewStill | null,
+  bucket: number,
+  image: string | null,
+): PreviewStill | null {
+  if (image === null) {
+    return null;
+  }
+  if (current?.bucket === bucket && current.image === image) {
+    return current;
+  }
+  return { bucket, image };
+}
+
 /**
  * The still a person pointing at the timeline sees, for the Stream playing now.
  *
@@ -125,7 +139,7 @@ export function usePreview(stream: string | null, ask: PreviewAsk): PreviewReads
       rememberStill(cache.current, asked.bucket, image);
       inFlight.current = null;
       if (hovered.current === asked.bucket) {
-        setStill(image === null ? null : { bucket: asked.bucket, image });
+        setStill((current) => nextStill(current, asked.bucket, image));
         setWaiting(false);
       }
       // The newest ask the pointer made while this one was in flight: after the
@@ -157,7 +171,7 @@ export function usePreview(stream: string | null, ask: PreviewAsk): PreviewReads
       hovered.current = bucket;
       const known = cache.current.get(bucket);
       if (known !== undefined) {
-        setStill(known === null ? null : { bucket, image: known });
+        setStill((current) => nextStill(current, bucket, known));
         setWaiting(false);
         return;
       }

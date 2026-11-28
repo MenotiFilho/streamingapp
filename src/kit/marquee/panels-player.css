@@ -771,9 +771,11 @@ button.mq-pp-track:disabled {
   user-select: none;
 }
 
-/* The bar draws its own focus: it thickens. */
-.mq-pp-seek:focus {
+/* The bar draws its own focus: it thickens. The `data-focusable` weight
+ * outranks a shared sheet's `[data-focusable]:focus` ring. */
+.mq-pp-seek[data-focusable]:focus {
   outline: none;
+  box-shadow: none;
 }
 
 .mq-pp-seek-elapsed {
@@ -985,9 +987,11 @@ html[data-input="navigation"] .mq-pp-seek:focus .mq-pp-seek-playhead,
   touch-action: none;
 }
 
-/* The knob is the level's focus mark. */
-.mq-pp-volume:focus {
+/* The knob is the level's focus mark. The `data-focusable` weight outranks a
+ * shared sheet's `[data-focusable]:focus` ring. */
+.mq-pp-volume[data-focusable]:focus {
   outline: none;
+  box-shadow: none;
 }
 
 .mq-pp-volume-track {

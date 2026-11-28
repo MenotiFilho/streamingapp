@@ -7,6 +7,10 @@ import {
   chapterMarks,
   CHAPTER_TICK_SPACING_PX,
   idleOsd,
+  marqueeEpisodeCode,
+  marqueeTopBarFacts,
+  marqueeTopBarSubtitle,
+  nextPlayerStop,
   osdPinned,
   OSD_START,
   spacedChapterMarks,
@@ -402,5 +406,70 @@ describe("the OSD and cursor visibility decision", () => {
       cursorVisible: true,
       lastInput: "key",
     });
+  });
+});
+
+describe("Marquee OSD decisions", () => {
+  test("formats episode codes and top bar subtitles with Watch progress episode names", () => {
+    expect(marqueeEpisodeCode({ season: 2, episode: 3 })).toBe("S2 E3");
+    expect(
+      marqueeTopBarSubtitle(
+        {
+          episode: { season: 2, episode: 3 },
+          nowPlaying: nowPlaying({ video: { type: "series", id: "tt1:2:3" } }),
+        },
+        [
+          {
+            video: {
+              id: "tt1:2:3",
+              name: "Who Is Alive?",
+              season: 2,
+              episode: 3,
+              thumbnail: null,
+              airDate: null,
+            },
+            title: { addon: "cinemeta", id: "tt1", type: "series", name: "Severance", poster: null },
+            position: 100,
+            duration: 2400,
+            watched: false,
+            unplayable: null,
+          },
+        ],
+      ),
+    ).toBe("S2 E3 · Who Is Alive?");
+    expect(marqueeTopBarSubtitle({ episode: null, nowPlaying: nowPlaying() }, [])).toBeNull();
+  });
+
+  test("extracts top bar facts verbatim, dropping redundant addon line when other marks exist", () => {
+    expect(marqueeTopBarFacts(null)).toEqual([]);
+    expect(marqueeTopBarFacts(nowPlaying({ addon: "Torrentio", name: "Torrentio\n4K\nATMOS" }))).toEqual([
+      "4K",
+      "ATMOS",
+    ]);
+    expect(marqueeTopBarFacts(nowPlaying({ addon: "Torrentio", name: "4K\nDOLBY VISION\nATMOS" }))).toEqual([
+      "4K",
+      "DOLBY VISION",
+      "ATMOS",
+    ]);
+    expect(marqueeTopBarFacts(nowPlaying({ addon: "Torrentio", name: "Torrentio" }))).toEqual([
+      "Torrentio",
+    ]);
+  });
+
+  test("walks the 4-stop vertical OSD ladder, skipping seek or picture when inactive", () => {
+    const live = { canSeek: true, canTransport: true };
+    expect(nextPlayerStop("picture", "up", live)).toBe("strip");
+    expect(nextPlayerStop("strip", "up", live)).toBe("seek");
+    expect(nextPlayerStop("seek", "up", live)).toBe("top");
+    expect(nextPlayerStop("top", "up", live)).toBeNull();
+    expect(nextPlayerStop("top", "down", live)).toBe("seek");
+    expect(nextPlayerStop("seek", "down", live)).toBe("strip");
+    expect(nextPlayerStop("strip", "down", live)).toBe("picture");
+    expect(nextPlayerStop("picture", "down", live)).toBeNull();
+
+    const opening = { canSeek: false, canTransport: false };
+    expect(nextPlayerStop("strip", "up", opening)).toBe("top");
+    expect(nextPlayerStop("top", "down", opening)).toBe("strip");
+    expect(nextPlayerStop("strip", "down", opening)).toBeNull();
   });
 });

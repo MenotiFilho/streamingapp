@@ -3,6 +3,13 @@ import { describe, expect, test } from "vitest";
 import {
   audioSection,
   chaptersSection,
+  marqueeAudioOptions,
+  marqueeChaptersPanel,
+  marqueeDetailsPanel,
+  marqueeEpisodeRow,
+  marqueePicturePanel,
+  marqueeSpeedOptions,
+  marqueeSubtitleOptions,
   pictureSections,
   speedSection,
   subtitleSections,
@@ -448,5 +455,173 @@ describe("the chapters panel", () => {
         text: "This Stream lists no chapters.",
       },
     ]);
+  });
+});
+
+describe("Marquee player panels", () => {
+  test("audio & subtitles options format titles and details cleanly with Off first", () => {
+    const sample = playback({
+      tracks: [
+        track({ id: 4, kind: "subtitle", title: "Español", codec: "srt", embedded: false }),
+        track({
+          id: 3,
+          kind: "subtitle",
+          title: "Português (Brasil)",
+          language: "pt-BR",
+          codec: "SRT",
+          embedded: true,
+          selected: true,
+        }),
+        track({
+          id: 1,
+          kind: "audio",
+          title: "English",
+          language: "en",
+          codec: "Dolby Digital+ Atmos",
+          embedded: true,
+          selected: true,
+        }),
+      ],
+    });
+    const subs = marqueeSubtitleOptions(sample);
+    expect(subs.emptyNote).toBeNull();
+    expect(subs.options.map((o) => o.key)).toEqual([
+      "subtitles-off",
+      "track-subtitle-3",
+      "track-subtitle-4",
+    ]);
+    expect(subs.options[1]).toMatchObject({
+      title: "Português (Brasil)",
+      detail: "In the file · SRT · pt-BR",
+      selected: true,
+    });
+
+    const audio = marqueeAudioOptions(sample);
+    expect(audio.emptyNote).toBeNull();
+    expect(audio.options[0]).toMatchObject({
+      title: "English",
+      detail: "en · Dolby Digital+ Atmos",
+      selected: true,
+    });
+  });
+
+  test("picture panel has Aspect and Crop without Statistics", () => {
+    const pic = marqueePicturePanel(playback({ crop: null }));
+    expect(pic.aspect[0]).toMatchObject({
+      title: "Source",
+      detail: "The shape the Stream carries",
+      selected: true,
+    });
+    expect(pic.crop[0]).toMatchObject({ title: "Full frame", selected: true });
+    expect(pic.autocropLabel).toBe("Autocrop");
+    expect(pic.autocropNote).toBe("Autocrop finds the black bars and keeps the picture inside them.");
+
+    const cropped = marqueePicturePanel(
+      playback({ crop: { width: 1920, height: 800, x: 0, y: 140 } }),
+    );
+    expect(cropped.autocropLabel).toBe("Restore full frame");
+    expect(cropped.autocropNote).toBe("Autocrop keeps 1920×800+0+140.");
+  });
+
+  test("speed panel labels 1× as Normal and marks selected rate", () => {
+    const options = marqueeSpeedOptions(playback({ speed: 1 }));
+    expect(options.find((o) => o.key === "speed-1")).toMatchObject({
+      title: "1× · Normal",
+      selected: true,
+    });
+    expect(options.find((o) => o.key === "speed-1.25")).toMatchObject({
+      title: "1.25×",
+      selected: false,
+    });
+  });
+
+  test("chapters panel numbers chapters and disables Previous/Next at bounds", () => {
+    const panel = marqueeChaptersPanel(
+      playback({
+        chapters: [
+          { index: 0, title: "Cold open", time: 0 },
+          { index: 1, title: "Lumon", time: 278 },
+        ],
+        chapter: 0,
+      }),
+    );
+    expect(panel.previousDisabled).toBe(true);
+    expect(panel.nextDisabled).toBe(false);
+    expect(panel.chapters[0]).toMatchObject({
+      title: "1 · Cold open",
+      detail: "0:00",
+      selected: true,
+    });
+    expect(panel.chapters[1]).toMatchObject({
+      title: "2 · Lumon",
+      detail: "4:38",
+      selected: false,
+    });
+  });
+
+  test("details panel carries Torrent status and Playback statistics", () => {
+    const details = marqueeDetailsPanel(
+      playback({
+        stalled: true,
+        torrent: { phase: "fetching", peers: 2, rate: 120_000 },
+        resolution: { width: 3840, height: 2160 },
+        nowPlaying: {
+          video: { type: "movie", id: "tt1" },
+          addon: "torrentio",
+          name: "4K DV",
+          description: null,
+          filename: null,
+          bingeGroup: null,
+        },
+        buffered: { start: 890, end: 901.4 },
+        statistics: { bitrate: 38_400_000, droppedFrames: 0, hardwareDecode: "d3d11va" },
+      }),
+      900,
+    );
+    expect(details.torrentRows).toEqual([
+      { label: "State", value: "Waiting for data" },
+      { label: "Engine", value: "Fetching" },
+      { label: "Peers", value: "2 connected" },
+      { label: "Speed", value: "120 kB/s" },
+    ]);
+    expect(details.playbackRows).toEqual([
+      { label: "Picture", value: "3840×2160 · 4K DV" },
+      { label: "Bitrate", value: "38.4 Mbps" },
+      { label: "Decoder", value: "Hardware · d3d11va" },
+      { label: "Dropped frames", value: "0" },
+      { label: "Buffered", value: "1.4 s ahead" },
+    ]);
+
+    const direct = marqueeDetailsPanel(playback({ torrent: null, buffered: null }), 900);
+    expect(direct.torrentRows).toBeNull();
+  });
+
+  test("marqueeEpisodeRow formats playing vs other episodes", () => {
+    const video = {
+      id: "tt1:2:3",
+      name: "Who Is Alive?",
+      season: 2,
+      episode: 3,
+      thumbnail: "https://images.test/e3.jpg",
+      airDate: "2025-01-31",
+      description: "Reintegration begins.",
+    };
+    const today = new Date(Date.UTC(2025, 2, 1));
+    expect(marqueeEpisodeRow(video, "tt1:2:3", null, 1072, 2913, today)).toEqual({
+      id: "tt1:2:3",
+      title: "E3 · Who Is Alive?",
+      detail: "Playing now · 17:52 of 48:33",
+      still: "https://images.test/e3.jpg",
+      playing: true,
+      progress: 1072 / 2913,
+    });
+    expect(marqueeEpisodeRow(video, "tt1:2:4", null, 100, 2913, today)).toEqual({
+      id: "tt1:2:3",
+      title: "E3 · Who Is Alive?",
+      detail: "31 Jan 2025 · Reintegration begins.",
+      still: "https://images.test/e3.jpg",
+      playing: false,
+      progress: null,
+    });
   });
 });

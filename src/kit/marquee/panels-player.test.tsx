@@ -490,6 +490,21 @@ describe("SeekBar", () => {
     fireEvent.pointerUp(track, { clientX: 350 });
     expect(onCommit).not.toHaveBeenCalled();
   });
+
+  it("does not re-fire onPoint when only the callback identity changes", () => {
+    const first = vi.fn();
+    const second = vi.fn();
+    const onCommit = vi.fn();
+    const { rerender } = render(
+      <SeekBar position={1072} duration={2913} focused onPoint={first} onCommit={onCommit} />,
+    );
+    expect(first).toHaveBeenCalledTimes(1);
+
+    rerender(
+      <SeekBar position={1072} duration={2913} focused onPoint={second} onCommit={onCommit} />,
+    );
+    expect(second).not.toHaveBeenCalled();
+  });
 });
 
 describe("PlayerControls", () => {

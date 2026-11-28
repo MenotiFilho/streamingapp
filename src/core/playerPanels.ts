@@ -16,6 +16,7 @@ import {
   chapterLabel,
   cropChoices,
   cropSelected,
+  formatBitrate,
   formatDelay,
   formatScale,
   formatSpeed,
@@ -29,8 +30,19 @@ import {
   trackLabel,
   trackMarks,
 } from "./controls";
+import { episodeAirNote } from "./marqueeTitle";
+import { qualityBadge } from "./osd";
+import { formatTime } from "./playback";
 import { formatRate } from "./torrentStatus";
-import type { Action, Chapter, PlaybackSnapshot, TorrentStatus, Track } from "./wire";
+import type {
+  Action,
+  Chapter,
+  PlaybackSnapshot,
+  ResumeEntry,
+  TorrentStatus,
+  Track,
+  Video,
+} from "./wire";
 
 /** One choice row: a row that is pressed when it is the value in force. */
 export type ChoiceRow = {
@@ -352,4 +364,284 @@ export function chaptersSection(playback: PlaybackSnapshot): PanelGroup {
   }
 
   return { title: "Chapters", rows };
+}
+
+/** One choice option in Marquee's floating panels (`TrackOption`). */
+export type MarqueeTrackOption = {
+  key: string;
+  title: string;
+  detail: string | null;
+  selected: boolean;
+  action: Action;
+};
+
+/** Primary line for a `TrackOption` in Marquee's Audio & Subtitles panel. */
+export function marqueeTrackTitle(track: Track): string {
+  return track.title ?? track.language ?? `Track ${track.id}`;
+}
+
+/** Secondary line for a `TrackOption` in Marquee's Audio & Subtitles panel. */
+export function marqueeTrackDetail(track: Track): string | null {
+  const parts: Array<string | null> =
+    track.kind === "subtitle"
+      ? [
+          track.embedded ? "In the file" : null,
+          track.codec,
+          track.language && track.title ? track.language : null,
+          track.forced ? "forced" : null,
+          track.default ? "default" : null,
+        ]
+      : [
+          track.language && track.title ? track.language : null,
+          track.codec,
+          track.embedded ? null : "External",
+          track.forced ? "forced" : null,
+          track.default ? "default" : null,
+        ];
+  const joined = parts.filter((part): part is string => Boolean(part)).join(" · ");
+  return joined || null;
+}
+
+/** Subtitle tracks (with `Off` first, embedded before external) for Marquee. */
+export function marqueeSubtitleOptions(playback: PlaybackSnapshot): {
+  options: MarqueeTrackOption[];
+  emptyNote: string | null;
+} {
+  const ordered = orderedTracks(playback.tracks, "subtitle");
+  const options: MarqueeTrackOption[] = [
+    {
+      key: "subtitles-off",
+      title: "Off",
+      detail: null,
+      selected: !subtitlesOn(playback.tracks),
+      action: { type: "set_subtitle_track", track: null },
+    },
+    ...ordered.map((track) => ({
+      key: `track-subtitle-${track.id}`,
+      title: marqueeTrackTitle(track),
+      detail: marqueeTrackDetail(track),
+      selected: track.selected,
+      action: { type: "set_subtitle_track" as const, track: track.id },
+    })),
+  ];
+  return {
+    options,
+    emptyNote: ordered.length === 0 ? "This Stream carries no subtitle track to pick." : null,
+  };
+}
+
+/** Audio tracks (embedded first) for Marquee. */
+export function marqueeAudioOptions(playback: PlaybackSnapshot): {
+  options: MarqueeTrackOption[];
+  emptyNote: string | null;
+} {
+  const ordered = orderedTracks(playback.tracks, "audio");
+  return {
+    options: ordered.map((track) => ({
+      key: `track-audio-${track.id}`,
+      title: marqueeTrackTitle(track),
+      detail: marqueeTrackDetail(track),
+      selected: track.selected,
+      action: { type: "set_audio_track" as const, track: track.id },
+    })),
+    emptyNote: ordered.length === 0 ? "This Stream carries no audio track to pick." : null,
+  };
+}
+
+/** Picture panel choices for Marquee (Aspect + Crop + Autocrop, no Statistics). */
+export function marqueePicturePanel(playback: PlaybackSnapshot): {
+  aspect: MarqueeTrackOption[];
+  crop: MarqueeTrackOption[];
+  autocropLabel: string;
+  autocropNote: string;
+} {
+  const currentCrop = playback.crop;
+  return {
+    aspect: ASPECTS.map(({ label, aspect }) => ({
+      key: `aspect-${label}`,
+      title: label,
+      detail: aspect.kind === "source" ? "The shape the Stream carries" : null,
+      selected: aspectSelected(playback.aspect, aspect),
+      action: { type: "set_aspect", aspect },
+    })),
+    crop: cropChoices(playback.resolution).map(({ label, crop }) => ({
+      key: `crop-${label}`,
+      title: label,
+      detail: null,
+      selected: cropSelected(currentCrop, crop),
+      action: { type: "set_crop", crop },
+    })),
+    autocropLabel: currentCrop ? "Restore full frame" : "Autocrop",
+    autocropNote: currentCrop
+      ? `Autocrop keeps ${currentCrop.width}×${currentCrop.height}+${currentCrop.x}+${currentCrop.y}.`
+      : "Autocrop finds the black bars and keeps the picture inside them.",
+  };
+}
+
+/** Speed choices for Marquee (`1× · Normal` at unit rate). */
+export function marqueeSpeedOptions(playback: PlaybackSnapshot): MarqueeTrackOption[] {
+  return SPEEDS.map((rate) => ({
+    key: `speed-${rate}`,
+    title: rate === 1 ? "1× · Normal" : formatSpeed(rate),
+    detail: null,
+    selected: speedSelected(playback.speed, rate),
+    action: { type: "set_speed", rate },
+  }));
+}
+
+/** Chapters panel data for Marquee (with Previous / Next controls). */
+export function marqueeChaptersPanel(playback: PlaybackSnapshot): {
+  previousDisabled: boolean;
+  nextDisabled: boolean;
+  chapters: MarqueeTrackOption[];
+  emptyNote: string | null;
+} {
+  const chapters = playback.chapters;
+  const current = playback.chapter;
+  return {
+    previousDisabled: current === null || current <= 0,
+    nextDisabled: current === null || current >= chapters.length - 1,
+    chapters: chapters.map((chapter) => ({
+      key: `chapter-${chapter.index}`,
+      title: `${chapter.index + 1} · ${chapter.title ?? `Chapter ${chapter.index + 1}`}`,
+      detail: formatTime(chapter.time),
+      selected: current === chapter.index,
+      action: { type: "set_chapter", index: chapter.index },
+    })),
+    emptyNote: chapters.length === 0 ? "This Stream lists no chapters." : null,
+  };
+}
+
+/** One row in Marquee's Details panel (`StatRow`). */
+export type DetailsStat = { label: string; value: string };
+
+/**
+ * Details panel columns for Marquee: Torrent status (when active) and
+ * playback Statistics (moved out of Picture per ADR-0043 §4).
+ */
+export function marqueeDetailsPanel(
+  playback: PlaybackSnapshot,
+  position: number | null,
+): {
+  torrentRows: DetailsStat[] | null;
+  playbackRows: DetailsStat[];
+} {
+  const torrentRows: DetailsStat[] | null = playback.torrent
+    ? [
+        {
+          label: "State",
+          value: playback.stalled
+            ? "Waiting for data"
+            : playback.state === "opening"
+              ? "Opening"
+              : "Connected",
+        },
+        {
+          label: "Engine",
+          value: playback.torrent.phase === "finding" ? "Finding" : "Fetching",
+        },
+        {
+          label: "Peers",
+          value: `${playback.torrent.peers} connected`,
+        },
+        {
+          label: "Speed",
+          value: formatRate(playback.torrent.rate),
+        },
+      ]
+    : null;
+
+  const quality = qualityBadge(playback.nowPlaying);
+  const pictureValue = playback.resolution
+    ? quality
+      ? `${playback.resolution.width}×${playback.resolution.height} · ${quality}`
+      : `${playback.resolution.width}×${playback.resolution.height}`
+    : "—";
+
+  const stats = playback.statistics;
+  const decoderValue =
+    stats?.hardwareDecode == null
+      ? "—"
+      : stats.hardwareDecode === "no"
+        ? "Software"
+        : `Hardware · ${stats.hardwareDecode}`;
+
+  const bufferedValue =
+    playback.buffered && position !== null
+      ? `${Math.max(0, playback.buffered.end - position).toFixed(1)} s ahead`
+      : "—";
+
+  const playbackRows: DetailsStat[] = [
+    { label: "Picture", value: pictureValue },
+    { label: "Bitrate", value: formatBitrate(stats?.bitrate ?? null) },
+    { label: "Decoder", value: decoderValue },
+    {
+      label: "Dropped frames",
+      value: stats?.droppedFrames == null ? "—" : String(stats.droppedFrames),
+    },
+    { label: "Buffered", value: bufferedValue },
+  ];
+
+  return { torrentRows, playbackRows };
+}
+
+export type MarqueeEpisodeRowData = {
+  id: string;
+  title: string;
+  detail: string | null;
+  still: string | null;
+  playing: boolean;
+  progress: number | null;
+};
+
+/** Presentation data for one episode row in Marquee's Episodes floating panel. */
+export function marqueeEpisodeRow(
+  video: Video,
+  playingId: string | null,
+  progressEntry: ResumeEntry | null,
+  position: number | null,
+  duration: number | null,
+  today: Date = new Date(),
+): MarqueeEpisodeRowData {
+  const playing = video.id === playingId;
+  const title =
+    video.episode !== null
+      ? video.name
+        ? `E${video.episode} · ${video.name}`
+        : `Episode ${video.episode}`
+      : (video.name ?? video.id);
+
+  let detail: string | null = null;
+  if (playing) {
+    detail =
+      position !== null && duration !== null && duration > 0
+        ? `Playing now · ${formatTime(position)} of ${formatTime(duration)}`
+        : "Playing now";
+  } else {
+    const airNote = episodeAirNote(video, today);
+    const parts = [airNote, video.description ?? null].filter(
+      (part): part is string => Boolean(part),
+    );
+    detail = parts.length > 0 ? parts.join(" · ") : null;
+  }
+
+  let progress: number | null = null;
+  if (playing && position !== null && duration !== null && duration > 0) {
+    progress = Math.min(1, Math.max(0, position / duration));
+  } else if (
+    progressEntry?.position != null &&
+    progressEntry.duration != null &&
+    progressEntry.duration > 0
+  ) {
+    progress = Math.min(1, Math.max(0, progressEntry.position / progressEntry.duration));
+  }
+
+  return {
+    id: video.id,
+    title,
+    detail,
+    still: video.thumbnail,
+    playing,
+    progress,
+  };
 }
