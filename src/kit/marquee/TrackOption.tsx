@@ -5,7 +5,7 @@
  */
 
 import { Icon } from "./icons";
-import { u } from "./ppParts";
+import { forcedFocus, u } from "./ppParts";
 
 export type TrackOptionProps = {
   title: string;
@@ -33,7 +33,7 @@ export function TrackOption({
       type="button"
       className="mq-pp mq-pp-track"
       data-focusable
-      data-focused={focused ? "true" : undefined}
+      data-focused={forcedFocus({ focused, disabled, pending })}
       data-selected={selected ? "true" : undefined}
       aria-pressed={selected}
       aria-busy={pending || undefined}

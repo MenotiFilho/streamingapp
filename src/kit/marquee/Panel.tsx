@@ -40,6 +40,8 @@ export type SidePanelProps = CommonPanelProps & {
 
 export type FloatingPanelProps = CommonPanelProps & {
   placement: "floating";
+  /** A floating panel draws no title of its own, so the client names the dialog. */
+  "aria-label": string;
   /** Two `PanelColumn`s of equal width with a rule between them. */
   split?: boolean;
   /** `compact` is the 420-wide menu with one column. */

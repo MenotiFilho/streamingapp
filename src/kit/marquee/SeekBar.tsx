@@ -9,6 +9,13 @@
  * Seek preview should be drawn, and the client answers with `still`; where there
  * is none the time and the Chapter stand alone (ADR-0028).
  *
+ * The bar keeps no target after a commit: it draws `position` again, and the
+ * next press steps from it. Two quick taps made before `position` has taken in
+ * the first seek can therefore ask for about one step, not two. A client that
+ * wants them to add up passes the target it sent as `position` until a newer
+ * Snapshot arrives. Only the client can tell that one has: a projected clock
+ * moves `position` without any answer from the Host (ADR-0033).
+ *
  * Left, Right, Page Up, Page Down, Home and End are the bar's while it has
  * focus; Up and Down are left to the focus engine. A pad has no key event, so a
  * client routes its Left and Right here with `seekKeyTarget`.
@@ -28,6 +35,7 @@ import { inputModality } from "../../core/inputModality";
 import { bufferedSpan, chapterMarks, remainingTime, timelineFraction } from "../../core/osd";
 import { formatTime } from "../../core/playback";
 import type { Buffered, Chapter } from "../../core/wire";
+import { forcedFocus } from "./ppParts";
 import { clampSeconds, secondsAt, seekable, seekKeyTarget, SEEK_STEP_SECONDS } from "./seekMath";
 
 export type SeekBarProps = {
@@ -192,7 +200,7 @@ export function SeekBar({
       role="slider"
       tabIndex={live ? 0 : -1}
       data-focusable={live ? true : undefined}
-      data-focused={focused ? "true" : undefined}
+      data-focused={forcedFocus({ focused, disabled: !live })}
       aria-label={label}
       aria-valuemin={0}
       aria-valuemax={live ? Math.floor(duration) : 0}

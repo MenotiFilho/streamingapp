@@ -2,8 +2,10 @@
  * Subtitle timing (sheet `C6`, 352×48): −0.1 s, the signed delay, +0.1 s and
  * **Reset**. The delay is the Host's, per Stream (ADR-0044 §4).
  *
- * Every step is its own ask — two presses are two tenths (ADR-0027) — so the
- * buttons take no pending state.
+ * A step asks for an absolute delay, one tenth from `seconds`. Presses made
+ * before a newer Snapshot moves `seconds` therefore ask for the same value,
+ * which a client's door joins while it is in flight (ADR-0027): they move one
+ * tenth, not one per press. The buttons take no pending state.
  */
 
 import { DELAY_STEP, formatDelay, stepDelay } from "../../core/controls";

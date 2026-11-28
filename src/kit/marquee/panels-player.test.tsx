@@ -4,6 +4,7 @@
  */
 
 import { fireEvent, render, screen, waitFor, within } from "@testing-library/react";
+import type { ReactElement } from "react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
 import { AddonNotice } from "./AddonNotice";
@@ -217,6 +218,87 @@ describe("TrackOption", () => {
     expect(button("Chosen")).not.toHaveAttribute("data-focused");
     expect(button("Focused")).toHaveAttribute("aria-pressed", "false");
     expect(button("Focused")).toHaveAttribute("data-focused", "true");
+  });
+});
+
+describe("forced focus", () => {
+  const noop = () => {};
+  const controls = (props: Partial<PlayerControlsProps>) => (
+    <PlayerControls
+      playing
+      volume={50}
+      onPlayPause={noop}
+      onSeekBy={noop}
+      onToggleMute={noop}
+      onVolume={noop}
+      onMenu={noop}
+      onNextEpisode={noop}
+      {...props}
+    />
+  );
+  type State = { disabled?: boolean; pending?: boolean };
+
+  it.each<[string, string, (state: State) => ReactElement, State[]]>([
+    [
+      "a pill button",
+      "+0.1 s",
+      ({ disabled }) => (
+        <SyncControl seconds={0} onChange={noop} focused="later" disabled={disabled} />
+      ),
+      [{ disabled: true }],
+    ],
+    [
+      "a pending pill button",
+      "Next episode",
+      ({ pending }) =>
+        controls({ focused: "nextEpisode", pending: pending ? ["nextEpisode"] : [] }),
+      [{ pending: true }],
+    ],
+    [
+      "a round button",
+      "Pause",
+      ({ disabled, pending }) =>
+        controls({ focused: "playPause", disabled, pending: pending ? ["playPause"] : [] }),
+      [{ disabled: true }, { pending: true }],
+    ],
+    [
+      "a Stream row",
+      "direct",
+      ({ disabled }) => <StreamRow name="direct" focused disabled={disabled} />,
+      [{ disabled: true }],
+    ],
+    [
+      "a track option",
+      "English",
+      (state) => <TrackOption title="English" focused {...state} />,
+      [{ disabled: true }, { pending: true }],
+    ],
+    [
+      "the seek bar",
+      "Position",
+      ({ disabled }) => (
+        <SeekBar position={1} duration={10} focused disabled={disabled} onCommit={noop} />
+      ),
+      [{ disabled: true }],
+    ],
+    [
+      "a seek bar with no length",
+      "Position",
+      ({ disabled }) => (
+        <SeekBar position={1} duration={disabled ? null : 10} focused onCommit={noop} />
+      ),
+      [{ disabled: true }],
+    ],
+  ])("is never forced on %s that refuses a press", (_, name, draw, refusals) => {
+    const control = () =>
+      screen.getByRole(name === "Position" ? "slider" : "button", { name });
+    const { rerender } = render(draw({}));
+    expect(control()).toHaveAttribute("data-focused", "true");
+
+    for (const state of refusals) {
+      rerender(draw(state));
+      expect(control(), JSON.stringify(state)).not.toHaveAttribute("data-focused");
+    }
   });
 });
 

@@ -17,6 +17,22 @@ export function u(measure: number): string {
   return `calc(var(--mq-u) * ${measure})`;
 }
 
+/**
+ * The `data-focused` a forced focus paints. A control that refuses a press,
+ * disabled or pending, takes no focus treatment.
+ */
+export function forcedFocus({
+  focused,
+  disabled,
+  pending,
+}: {
+  focused?: boolean;
+  disabled?: boolean;
+  pending?: boolean;
+}): "true" | undefined {
+  return focused && !disabled && !pending ? "true" : undefined;
+}
+
 type ControlProps = Omit<ButtonHTMLAttributes<HTMLButtonElement>, "type"> & {
   /** Draw the focus treatment whatever the input modality. */
   focused?: boolean;
@@ -58,7 +74,7 @@ export function PpButton({
       data-kind={kind}
       data-size={size}
       data-focusable
-      data-focused={focused ? "true" : undefined}
+      data-focused={forcedFocus({ focused, disabled, pending })}
       aria-busy={pending || undefined}
       disabled={disabled || pending}
     >
@@ -101,7 +117,7 @@ export function PpIconButton({
       data-kind={kind}
       data-size={size}
       data-focusable
-      data-focused={focused ? "true" : undefined}
+      data-focused={forcedFocus({ focused, disabled, pending })}
       data-open={open ? "true" : undefined}
       aria-label={label}
       aria-busy={pending || undefined}

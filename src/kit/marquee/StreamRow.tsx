@@ -10,7 +10,7 @@
 import type { ReactNode } from "react";
 
 import { Icon, type IconName } from "./icons";
-import { PpBadge, u } from "./ppParts";
+import { forcedFocus, PpBadge, u } from "./ppParts";
 import { tierTone } from "./streamTier";
 
 export type StreamRowProps = {
@@ -56,7 +56,7 @@ export function StreamRow({
       type="button"
       className="mq-pp mq-pp-stream"
       data-focusable
-      data-focused={focused ? "true" : undefined}
+      data-focused={forcedFocus({ focused, disabled })}
       data-playing={playing ? "true" : undefined}
       aria-current={playing ? "true" : undefined}
       disabled={disabled}

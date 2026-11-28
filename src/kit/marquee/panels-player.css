@@ -30,10 +30,11 @@
 
 /*
  * Words keep the face's own figures, as the sheets set them. The button
- * selector outranks the scoped reset's `font: inherit`.
+ * selector outranks the scoped reset's `font: inherit` wherever `base.css`
+ * lands in the bundle.
  */
 .mq-pp,
-button.mq-pp {
+button.mq-pp[data-focusable] {
   font-variant-numeric: proportional-nums;
 }
 
@@ -74,14 +75,22 @@ button.mq-pp-iconbtn {
   padding: 0;
   background: transparent;
   color: var(--mq-text);
-  font-family: var(--mq-font);
-  font-weight: var(--mq-weight-bold);
   white-space: nowrap;
   cursor: pointer;
   transition:
     background-color var(--mq-motion-fade) var(--mq-ease),
     color var(--mq-motion-fade) var(--mq-ease),
     box-shadow var(--mq-motion-fade) var(--mq-ease);
+}
+
+/*
+ * `.mq-root button { font: inherit }` ties with a bare `button.mq-pp-btn`, and
+ * a later `@import "./base.css"` would win the tie: the attribute outranks it.
+ */
+button.mq-pp-btn[data-size],
+button.mq-pp-iconbtn[data-size] {
+  font-family: var(--mq-font);
+  font-weight: var(--mq-weight-bold);
 }
 
 button.mq-pp-btn[data-size="L"] {
