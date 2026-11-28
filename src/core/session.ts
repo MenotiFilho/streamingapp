@@ -6,6 +6,7 @@ import { FeedStore } from "./feedStore";
 import { HomeStore } from "./homeStore";
 import { InFlight } from "./inFlight";
 import type { HostLink, LinkState } from "./link";
+import { INITIAL_DISCOVER_FILTERS, type DiscoverFilterState } from "./marqueeDiscover";
 import { Selection } from "./selection";
 import type { Action, Response, Snapshot, Title } from "./wire";
 
@@ -90,6 +91,8 @@ export class Session {
   readonly feeds: FeedStore;
   /** Discover's chosen genre chip, by the name the two clients share. */
   readonly discoverGenre: Selection<string | null>;
+  /** Marquee Discover's Type, Genre and Sort. */
+  readonly discoverFilters: Selection<DiscoverFilterState>;
   /** Search's field and committed query. */
   readonly searchView: Selection<SearchView>;
   /** The keyless Search arm's one answer per query. */
@@ -102,6 +105,7 @@ export class Session {
     this.home = new HomeStore(this.ask);
     this.feeds = new FeedStore(this.ask);
     this.discoverGenre = new Selection<string | null>(null);
+    this.discoverFilters = new Selection<DiscoverFilterState>(INITIAL_DISCOVER_FILTERS);
     this.searchView = new Selection<SearchView>(EMPTY_SEARCH_VIEW);
     this.searchCatalogs = new CatalogSearchStore(this.ask);
   }

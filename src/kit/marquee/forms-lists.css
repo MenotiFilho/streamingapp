@@ -154,6 +154,13 @@ html[data-input="navigation"] .mq-c7-icon-btn:focus:not(:disabled),
   appearance: none;
 }
 
+/* The pill and the field draw focus themselves. The `data-focusable` weight
+ * outranks a shared sheet's `[data-focusable]:focus` ring. */
+.mq-c7-search-input[data-focusable]:focus,
+.mq-c7-field-input[data-focusable]:focus {
+  outline: none;
+}
+
 .mq-c7-search-input::placeholder {
   color: var(--mq-c7-search-placeholder);
   opacity: 1;
