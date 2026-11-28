@@ -1,6 +1,7 @@
 import { act, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
+import { MotionGlobalConfig } from "motion/react";
 import type { ReactNode } from "react";
-import { describe, expect, test, vi } from "vitest";
+import { afterAll, beforeAll, describe, expect, test, vi } from "vitest";
 
 import type {
   Action,
@@ -25,6 +26,17 @@ import { readLevel } from "../layout";
 import { decideMove } from "../focus";
 import { FOLLOW_THE_FILE } from "../../core/languages";
 import { THREE_CHOSEN_NOTE } from "../../core/languageList";
+
+// Skip wall-clock Motion transitions and AnimatePresence exit delays in jsdom
+// so destination cross-fades and pushed-level exits settle immediately under load.
+let previousSkipAnimations: boolean | undefined;
+beforeAll(() => {
+  previousSkipAnimations = MotionGlobalConfig.skipAnimations;
+  MotionGlobalConfig.skipAnimations = true;
+});
+afterAll(() => {
+  MotionGlobalConfig.skipAnimations = previousSkipAnimations;
+});
 
 const CINEMETA: AddonManifest = {
   id: "com.linvo.cinemeta",
@@ -811,37 +823,36 @@ describe("the repertory frame's destinations", () => {
   test("routes every destination, and pushes Credentials from the register", async () => {
     render(<Shell client={fakeHost(SNAPSHOT)} />);
 
-    fireEvent.click(await screen.findByRole("button", { name: "Addons" }));
-    expect(await screen.findByRole("heading", { name: "Addons" })).toBeInTheDocument();
-    await waitFor(() =>
-      expect(document.activeElement).toBe(screen.getByRole("button", { name: "Addons" })),
-    );
+    const nav = await screen.findByRole("navigation", { name: "Destinations" });
+    const navButton = (name: string) => within(nav).getByRole("button", { name });
 
-    fireEvent.click(screen.getByRole("button", { name: "Settings" }));
+    const addons = navButton("Addons");
+    fireEvent.click(addons);
+    expect(await screen.findByRole("heading", { name: "Addons" })).toBeInTheDocument();
+    await waitFor(() => expect(document.activeElement).toBe(addons));
+
+    const settings = navButton("Settings");
+    fireEvent.click(settings);
     expect(await screen.findByRole("heading", { name: "Settings" })).toBeInTheDocument();
-    await waitFor(() =>
-      expect(document.activeElement).toBe(screen.getByRole("button", { name: "Settings" })),
-    );
+    await waitFor(() => expect(document.activeElement).toBe(settings));
 
     fireEvent.click(screen.getByTestId("settings-category-credentials"));
     expect(await screen.findByRole("heading", { name: "Credentials" })).toBeInTheDocument();
 
     // A Settings leaf leaves the spine live, so another destination can be
     // chosen without backing out of the leaf first.
-    expect(
-      screen.getByRole("navigation", { name: "Destinations" }).closest("[inert]"),
-    ).toBeNull();
-    fireEvent.click(screen.getByRole("button", { name: "Addons" }));
+    expect(nav.closest("[inert]")).toBeNull();
+    fireEvent.click(navButton("Addons"));
     expect(await screen.findByRole("heading", { name: "Addons" })).toBeInTheDocument();
     expect(screen.queryByRole("heading", { name: "Credentials" })).not.toBeInTheDocument();
 
-    fireEvent.click(screen.getByRole("button", { name: "Discover" }));
+    fireEvent.click(navButton("Discover"));
     expect(await screen.findByTestId("discover-screen")).toBeInTheDocument();
 
-    fireEvent.click(screen.getByRole("button", { name: "Search" }));
+    fireEvent.click(navButton("Search"));
     expect(await screen.findByTestId("search-screen")).toBeInTheDocument();
 
-    fireEvent.click(screen.getByRole("button", { name: "Library" }));
+    fireEvent.click(navButton("Library"));
     expect(await screen.findByTestId("library-gate")).toBeInTheDocument();
   });
 
