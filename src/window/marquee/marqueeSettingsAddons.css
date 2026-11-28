@@ -1,0 +1,480 @@
+/*
+ * Marquee Addons & Settings screens (#361): frames 18–27.
+ *
+ * Uses `--mq-*` tokens exclusively; zero `--rep-*` tokens and zero literal
+ * lavender hexes outside `--mq-accent`.
+ */
+
+/* Keep the nav rail above pushed `settings-*` levels (`MarqueeFrame` keeps it live);
+ * `.mq-level-shell` already provides the opaque `--mq-canvas` ground. */
+.mq-frame:has(> .mq-level-shell[data-level-id^="settings-"]:not([inert])) > .mq-nav-slot {
+  z-index: 35;
+}
+
+/* Confirmation overlays (`18c`, `20b`) let `Confirm`'s dim scrim reveal the screen below. */
+.mq-level-shell[data-level-id^="confirm-"] {
+  background: transparent;
+  overflow: hidden;
+}
+
+.mq-screen {
+  box-sizing: border-box;
+  width: 100%;
+  height: 100%;
+  overflow-y: auto;
+  padding: calc(var(--mq-u) * 56) var(--mq-margin-full) var(--mq-space-8) var(--mq-margin-rail);
+  scrollbar-width: none;
+}
+
+.mq-screen::-webkit-scrollbar {
+  display: none;
+}
+
+/* --------------------------------------------------------------------------
+ * Addons (`18` – `18d`)
+ * -------------------------------------------------------------------------- */
+
+.mq-addons-form {
+  display: flex;
+  align-items: flex-start;
+  gap: calc(var(--mq-u) * 20);
+  margin-top: calc(var(--mq-u) * 32);
+}
+
+.mq-addons-install-btn {
+  margin-top: calc(var(--mq-u) * 36);
+}
+
+.mq-addons-list {
+  display: flex;
+  flex-direction: column;
+  gap: calc(var(--mq-u) * 20);
+  width: calc(var(--mq-u) * 880);
+  max-width: 100%;
+  margin: calc(var(--mq-u) * 36) 0 0;
+  padding: 0;
+  list-style: none;
+}
+
+.mq-addons-item {
+  display: flex;
+  flex-direction: column;
+  gap: calc(var(--mq-u) * 8);
+}
+
+.mq-addons-waiting {
+  margin: calc(var(--mq-u) * 36) 0 0;
+  color: var(--mq-text-faint);
+  font-size: var(--mq-text-caption);
+}
+
+.mq-addons-empty {
+  display: flex;
+  justify-content: center;
+  width: calc(var(--mq-u) * 880);
+  max-width: 100%;
+  margin-top: calc(var(--mq-u) * 64);
+}
+
+/* --------------------------------------------------------------------------
+ * Shared facts card (`18d`, `21`, `22`, `27`)
+ * -------------------------------------------------------------------------- */
+
+.mq-facts {
+  display: flex;
+  flex-direction: column;
+  width: calc(var(--mq-u) * 880);
+  max-width: 100%;
+  margin: 0;
+  padding: calc(var(--mq-u) * 4) 0;
+  border-radius: var(--mq-radius-18);
+  background: var(--mq-row-rest);
+}
+
+.mq-facts-row {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: calc(var(--mq-u) * 24);
+  min-height: calc(var(--mq-u) * 52);
+  padding: calc(var(--mq-u) * 14) calc(var(--mq-u) * 24);
+  box-sizing: border-box;
+}
+
+.mq-facts-row + .mq-facts-row {
+  border-top: max(1px, calc(var(--mq-u) * 1)) solid var(--mq-panel-border);
+}
+
+.mq-facts-term {
+  flex: none;
+  color: var(--mq-text-muted);
+  font-size: var(--mq-text-label-sm);
+  font-weight: var(--mq-weight-medium);
+  line-height: calc(var(--mq-u) * 23);
+}
+
+.mq-facts-value {
+  margin: 0;
+  min-width: 0;
+  color: var(--mq-white);
+  font-size: var(--mq-text-label-sm);
+  font-weight: var(--mq-weight-bold);
+  line-height: calc(var(--mq-u) * 23);
+  text-align: right;
+  overflow-wrap: anywhere;
+}
+
+.mq-facts-value[data-accent="true"] {
+  color: var(--mq-accent);
+}
+
+/* --------------------------------------------------------------------------
+ * Settings two-column frame (`19` – `27`)
+ * -------------------------------------------------------------------------- */
+
+.mq-settings-columns {
+  display: flex;
+  align-items: flex-start;
+  gap: calc(var(--mq-u) * 72);
+  margin-top: calc(var(--mq-u) * 40);
+}
+
+.mq-settings-categories {
+  display: flex;
+  flex: none;
+  flex-direction: column;
+  gap: calc(var(--mq-u) * 12);
+  width: calc(var(--mq-u) * 360);
+}
+
+.mq-settings-pane {
+  flex: 1;
+  min-width: 0;
+  max-width: calc(var(--mq-u) * 880);
+}
+
+.mq-settings-pane-inner {
+  display: flex;
+  flex-direction: column;
+  gap: calc(var(--mq-u) * 24);
+}
+
+.mq-settings-cat-title {
+  margin: 0;
+  font-size: var(--mq-text-level-title);
+  font-weight: var(--mq-weight-extrabold);
+  line-height: calc(var(--mq-u) * 40);
+}
+
+.mq-settings-subhead {
+  display: flex;
+  flex-direction: column;
+  gap: calc(var(--mq-u) * 16);
+}
+
+.mq-settings-subhead-bar {
+  display: flex;
+  align-items: center;
+  gap: calc(var(--mq-u) * 16);
+}
+
+.mq-settings-subhead-titles {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+}
+
+.mq-settings-crumb {
+  color: var(--mq-accent);
+  font-size: var(--mq-text-caption-sm);
+  font-weight: var(--mq-weight-bold);
+  line-height: calc(var(--mq-u) * 20);
+}
+
+.mq-settings-subhead-title {
+  margin: 0;
+  font-size: calc(var(--mq-u) * 28);
+  font-weight: var(--mq-weight-extrabold);
+  line-height: calc(var(--mq-u) * 38);
+}
+
+.mq-settings-intro {
+  margin: 0;
+  color: var(--mq-text-muted);
+  font-size: var(--mq-text-label-sm);
+  font-weight: var(--mq-weight-medium);
+  line-height: calc(var(--mq-u) * 25);
+}
+
+.mq-settings-rows {
+  display: flex;
+  flex-direction: column;
+  gap: calc(var(--mq-u) * 12);
+}
+
+.mq-settings-group {
+  display: flex;
+  flex-direction: column;
+  gap: calc(var(--mq-u) * 12);
+}
+
+.mq-settings-section {
+  display: flex;
+  flex-direction: column;
+  gap: calc(var(--mq-u) * 14);
+}
+
+.mq-settings-section-title {
+  margin: 0;
+  font-size: calc(var(--mq-u) * 22);
+  font-weight: var(--mq-weight-extrabold);
+  line-height: calc(var(--mq-u) * 30);
+}
+
+.mq-settings-section-body {
+  margin: 0;
+  color: var(--mq-text-muted);
+  font-size: var(--mq-text-caption);
+  font-weight: var(--mq-weight-medium);
+  line-height: calc(var(--mq-u) * 23);
+}
+
+.mq-settings-rule {
+  width: 100%;
+  height: max(1px, calc(var(--mq-u) * 1));
+  margin: calc(var(--mq-u) * 4) 0;
+  border: 0;
+  background: var(--mq-line);
+}
+
+.mq-settings-note {
+  margin: 0;
+  color: var(--mq-text-faint);
+  font-size: var(--mq-text-caption-sm);
+  font-weight: var(--mq-weight-medium);
+  line-height: calc(var(--mq-u) * 21);
+}
+
+/* --------------------------------------------------------------------------
+ * Choice groups & Subtitle appearance (`24`, `25`, `26`)
+ * -------------------------------------------------------------------------- */
+
+.mq-choice-group {
+  display: flex;
+  flex-direction: column;
+  gap: calc(var(--mq-u) * 10);
+}
+
+.mq-choice-label {
+  color: var(--mq-text-muted);
+  font-size: var(--mq-text-label-sm);
+  font-weight: var(--mq-weight-bold);
+  line-height: calc(var(--mq-u) * 23);
+}
+
+.mq-choice-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: calc(var(--mq-u) * 10);
+}
+
+.mq-stepper-row {
+  display: flex;
+  align-items: center;
+  gap: calc(var(--mq-u) * 20);
+}
+
+.mq-stepper-hint {
+  color: var(--mq-text-faint);
+  font-size: var(--mq-text-caption-sm);
+  font-weight: var(--mq-weight-medium);
+  line-height: calc(var(--mq-u) * 20);
+}
+
+.mq-subtitle-preview {
+  position: relative;
+  display: flex;
+  align-items: flex-end;
+  justify-content: center;
+  width: calc(var(--mq-u) * 880);
+  max-width: 100%;
+  height: calc(var(--mq-u) * 400);
+  overflow: hidden;
+  border-radius: var(--mq-radius-20);
+  background:
+    radial-gradient(circle at 50% 35%, var(--mq-surface-3) 0%, var(--mq-surface) 75%);
+  border: max(1px, calc(var(--mq-u) * 1)) solid var(--mq-panel-border);
+}
+
+.mq-subtitle-preview-badge {
+  position: absolute;
+  top: calc(var(--mq-u) * 16);
+  left: calc(var(--mq-u) * 16);
+}
+
+.mq-subtitle-preview-scrim {
+  position: absolute;
+  right: 0;
+  bottom: 0;
+  left: 0;
+  height: calc(var(--mq-u) * 160);
+  background: linear-gradient(to top, rgb(0 0 0 / 0.65), transparent);
+  pointer-events: none;
+}
+
+.mq-subtitle-preview-line {
+  position: relative;
+  z-index: 1;
+  margin: 0 calc(var(--mq-u) * 32) calc(var(--mq-u) * 28);
+  font-weight: var(--mq-weight-semibold);
+  line-height: 1.3;
+  text-align: center;
+  text-shadow: 0 calc(var(--mq-u) * 2) calc(var(--mq-u) * 4) rgb(0 0 0 / 0.9);
+}
+
+/* --------------------------------------------------------------------------
+ * Languages "Following the file" banner (`23b`)
+ * -------------------------------------------------------------------------- */
+
+.mq-settings-follow-banner {
+  display: flex;
+  flex-direction: column;
+  gap: calc(var(--mq-u) * 6);
+  padding: calc(var(--mq-u) * 16) calc(var(--mq-u) * 24);
+  border-radius: var(--mq-radius-18);
+  background: var(--mq-accent-soft);
+  border: max(1px, calc(var(--mq-u) * 1)) solid
+    color-mix(in srgb, var(--mq-accent) 40%, transparent);
+}
+
+.mq-settings-follow-title {
+  color: var(--mq-accent);
+  font-size: var(--mq-text-control);
+  font-weight: var(--mq-weight-bold);
+  line-height: calc(var(--mq-u) * 27);
+}
+
+.mq-settings-follow-detail {
+  color: var(--mq-text-muted);
+  font-size: var(--mq-text-caption);
+  font-weight: var(--mq-weight-medium);
+  line-height: calc(var(--mq-u) * 22);
+}
+
+/* --------------------------------------------------------------------------
+ * Credentials, Remote devices & About (`20` – `22`, `27`)
+ * -------------------------------------------------------------------------- */
+
+.mq-settings-form {
+  display: flex;
+  flex-direction: column;
+  gap: calc(var(--mq-u) * 18);
+}
+
+.mq-settings-actions {
+  display: flex;
+  align-items: center;
+  gap: calc(var(--mq-u) * 12);
+}
+
+.mq-btn-danger-text[data-focusable] {
+  color: var(--mq-danger);
+}
+
+html[data-input="navigation"] .mq-btn-danger-text:focus,
+.mq-btn-danger-text[data-focused="true"] {
+  color: var(--mq-ink);
+}
+
+.mq-account-card {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: calc(var(--mq-u) * 20);
+  min-height: calc(var(--mq-u) * 96);
+  padding: calc(var(--mq-u) * 20) calc(var(--mq-u) * 24);
+  border-radius: var(--mq-radius-18);
+  background: var(--mq-row-rest);
+  box-sizing: border-box;
+}
+
+.mq-account-copy {
+  display: flex;
+  flex-direction: column;
+  gap: calc(var(--mq-u) * 4);
+  min-width: 0;
+}
+
+.mq-account-state {
+  font-size: var(--mq-text-control);
+  font-weight: var(--mq-weight-bold);
+  line-height: calc(var(--mq-u) * 27);
+}
+
+.mq-account-detail {
+  color: var(--mq-text-muted);
+  font-size: var(--mq-text-caption-sm);
+  font-weight: var(--mq-weight-medium);
+  line-height: calc(var(--mq-u) * 20);
+}
+
+.mq-settings-devices {
+  display: flex;
+  flex-direction: column;
+  gap: calc(var(--mq-u) * 12);
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.mq-about-tmdb {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: calc(var(--mq-u) * 20);
+  padding: calc(var(--mq-u) * 28) calc(var(--mq-u) * 24);
+  border-radius: var(--mq-radius-18);
+  background: var(--mq-row-rest);
+}
+
+.mq-about-tmdb-logo {
+  width: calc(var(--mq-u) * 273);
+  height: calc(var(--mq-u) * 36);
+}
+
+.mq-about-tmdb-notice {
+  margin: 0;
+  color: var(--mq-text-muted);
+  font-size: var(--mq-text-caption);
+  font-weight: var(--mq-weight-medium);
+  line-height: calc(var(--mq-u) * 22);
+}
+
+.mq-about-licence {
+  margin: 0;
+  color: var(--mq-text-muted);
+  font-size: var(--mq-text-label-sm);
+  font-weight: var(--mq-weight-medium);
+  line-height: calc(var(--mq-u) * 26);
+}
+
+/* --------------------------------------------------------------------------
+ * Status & refusals
+ * -------------------------------------------------------------------------- */
+
+.mq-inline-status {
+  margin: calc(var(--mq-u) * 12) 0 0;
+  color: var(--mq-accent);
+  font-size: var(--mq-text-caption);
+  font-weight: var(--mq-weight-semibold);
+  line-height: calc(var(--mq-u) * 22);
+}
+
+.mq-inline-refusal,
+.mq-confirm-error {
+  margin: calc(var(--mq-u) * 10) 0 0;
+  color: var(--mq-danger);
+  font-size: var(--mq-text-caption);
+  font-weight: var(--mq-weight-medium);
+  line-height: calc(var(--mq-u) * 22);
+}
