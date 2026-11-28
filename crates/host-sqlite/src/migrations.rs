@@ -177,6 +177,13 @@ pub const MIGRATIONS: &[Migration] = &[
         version: 11,
         sql: "ALTER TABLE watch_progress ADD COLUMN title_logo TEXT;",
     },
+    Migration {
+        // Whether an Addon is enabled or switched off by the owner without
+        // removing it (ADR-0044 §2, #355): every Addon configured before this
+        // step upgrades as enabled (`1`).
+        version: 12,
+        sql: "ALTER TABLE addons ADD COLUMN enabled INTEGER NOT NULL DEFAULT 1;",
+    },
 ];
 
 /// The version a database is at once every migration in `migrations` has run.

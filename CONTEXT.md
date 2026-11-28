@@ -69,7 +69,9 @@ _Avoid_: episode (for films), media, stream
 ### Sources
 
 **Addon**:
-A service the Host is configured with that speaks the Stremio addon protocol.
+A service the Host is configured with that speaks the Stremio addon protocol. The
+owner may disable one without removing it: it keeps its configured place, and the
+Host asks it for no catalog, Title, Stream or subtitle until it is enabled again.
 _Avoid_: plugin, extension, provider
 
 **Manifest**:
@@ -86,7 +88,8 @@ _Avoid_: feed, list, collection
 **Featured catalog**:
 The one Catalog the owner has marked as the Host's featured feed — what a
 client's Home hero is drawn from, its first items in the Addon's own order. A
-preference of the Host's, not a client's: every client draws the same hero.
+preference of the Host's, not a client's: every client draws the same hero. While
+its Addon is disabled the preference is kept and no hero is published.
 _Avoid_: pinned catalog, top shelf, hero row
 
 **Discover**:
@@ -203,8 +206,8 @@ the Video of it played last, or its Up next once that Video is finished; a Title
 whose card would be a finished Video with nothing after it leaves the row,
 though its Watch progress stays. A card opens its Title. It is drawn from the
 Host's own record, so every client shows the same row. Real and offline: it
-needs no account and no network, and an entry whose Addon is gone stays listed,
-marked unplayable.
+needs no account and no network, and an entry whose Addon is gone or disabled
+stays listed, marked unplayable with which of the two it is.
 _Avoid_: library, history, watchlist, resume
 
 **Up next**:

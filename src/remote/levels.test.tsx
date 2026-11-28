@@ -235,6 +235,7 @@ const CINEMETA: AddonManifest = {
   catalogs: [POPULAR],
   idPrefixes: ["tt"],
   behaviorHints: { configurable: false, configurationRequired: false },
+  enabled: true,
 };
 
 const GRID_SNAPSHOT: Snapshot = { ...NOTHING, addons: [CINEMETA] };

@@ -32,7 +32,7 @@ use crate::library::{Library, LibraryCache};
 use crate::log::millis;
 use crate::meta::{self, Title, TitleKey, Video};
 use crate::preview::{PreviewCeiling, Previewer};
-use crate::progress::WatchProgress;
+use crate::progress::{UnplayableReason, WatchProgress};
 use crate::provider::Provider;
 use crate::request::{
     CatalogRef, Extra, ResourceRequest, TitleRef, VideoRef, CATALOG, META, STREAM,
@@ -228,7 +228,7 @@ impl HostView {
                 catalog,
                 extra,
             } => {
-                let configured = self.addon(addon)?;
+                let configured = self.enabled_addon(addon)?;
                 let requested =
                     ResourceRequest::new(CATALOG, &catalog.r#type, &catalog.id).with_extra(
                         with_required_values(configured.manifest(), catalog, extra.clone()),
@@ -241,15 +241,16 @@ impl HostView {
                 Answer::Catalogs(vec![row])
             }
             ValidatedAction::SearchCatalogs { query } => {
-                // Every catalog that offers a search, in the order the Addons
-                // are configured, and each Addon's own order within that. One
-                // Addon failing is one row with nothing in it, not a failed
-                // search (ADR-0010). The asks fan out, and the rows are written
-                // back by plan position, so completion order changes nothing a
-                // client sees (ADR-0023).
+                // Every catalog that offers a search on an enabled Addon, in
+                // the order the Addons are configured, and each Addon's own
+                // order within that. One Addon failing is one row with nothing
+                // in it, not a failed search (ADR-0010, ADR-0044 §2). The asks
+                // fan out, and the rows are written back by plan position, so
+                // completion order changes nothing a client sees (ADR-0023).
                 let plan: Vec<(&Addon, ResourceRequest)> = self
                     .addons
                     .iter()
+                    .filter(|addon| addon.is_enabled())
                     .flat_map(|addon| {
                         addon.manifest().catalogs.iter().filter_map(move |catalog| {
                             let extra = catalog.search_extra(query)?;
@@ -306,6 +307,14 @@ impl HostView {
                 Answer::Search(row)
             }
             ValidatedAction::OpenTitle { addon, title } => {
+                // Direct targeting of a disabled Addon refuses cleanly, even
+                // when a cached copy is on disk (ADR-0044 §2). A removed Addon
+                // keeps its cached copy per ADR-0038.
+                if self.is_addon_disabled(addon) {
+                    return Err(ActionError::AddonDisabled {
+                        id: addon.as_str().to_owned(),
+                    });
+                }
                 let now = self.clock.now_millis();
                 let cached = self.cached_for_addon(addon, title, now);
                 if let Some(cached) = &cached {
@@ -454,6 +463,7 @@ impl HostView {
             | ValidatedAction::AddAddon(_)
             | ValidatedAction::ReorderAddon { .. }
             | ValidatedAction::RemoveAddon(_)
+            | ValidatedAction::SetAddonEnabled { .. }
             | ValidatedAction::SetTmdbKey(_)
             | ValidatedAction::ClearTmdbKey
             | ValidatedAction::SignInStremio(_)
@@ -508,6 +518,36 @@ impl HostView {
             .ok_or_else(|| ActionError::UnknownAddon {
                 id: id.as_str().to_owned(),
             })
+    }
+
+    /// One configured and enabled Addon in this view, refusing when it is not
+    /// configured or when the owner has switched it off (ADR-0044 §2).
+    fn enabled_addon(&self, id: &AddonId) -> Result<Addon, ActionError> {
+        let addon = self.addon(id)?;
+        if !addon.is_enabled() {
+            return Err(ActionError::AddonDisabled {
+                id: id.as_str().to_owned(),
+            });
+        }
+        Ok(addon)
+    }
+
+    /// Whether `id` is configured in this view and switched off.
+    fn is_addon_disabled(&self, id: &AddonId) -> bool {
+        self.addons
+            .iter()
+            .find(|addon| addon.id() == id)
+            .is_some_and(|addon| !addon.is_enabled())
+    }
+
+    /// Why `id` cannot be played from in this view, or `None` when it is
+    /// configured and enabled (ADR-0015, ADR-0044 §2).
+    fn addon_unplayable(&self, id: &AddonId) -> Option<UnplayableReason> {
+        match self.addons.iter().find(|addon| addon.id() == id) {
+            Some(addon) if addon.is_enabled() => None,
+            Some(_) => Some(UnplayableReason::AddonDisabled),
+            None => Some(UnplayableReason::AddonRemoved),
+        }
     }
 
     /// One catalog row: what is cached, or what the Addon answers, or why it
@@ -651,9 +691,10 @@ impl HostView {
     /// the cache is the part that outlives it (ADR-0038 §1).
     fn keep_title(&self, read: &KeptTitle, replacing: Option<TitleKey>, now: i64) -> bool {
         let protection = self.protection();
-        let addon_held = |addon: &AddonId| self.addons.iter().any(|held| held.id() == addon);
+        let addon_unplayable = |addon: &AddonId| self.addon_unplayable(addon);
         let mut cache = self.titles.lock().expect("the Title cache is not poisoned");
-        let before = crate::progress::continue_watching(&self.watch, cache.cached(), addon_held);
+        let before =
+            crate::progress::continue_watching(&self.watch, cache.cached(), addon_unplayable);
         let changed = cache.keep(
             CachedTitle {
                 title: read.title.clone(),
@@ -666,7 +707,8 @@ impl HostView {
             &protection,
             now,
         );
-        let after = crate::progress::continue_watching(&self.watch, cache.cached(), addon_held);
+        let after =
+            crate::progress::continue_watching(&self.watch, cache.cached(), addon_unplayable);
 
         let moved = changed && before != after;
         if moved {
@@ -713,6 +755,9 @@ impl HostView {
         let now = self.clock.now_millis();
         let (key, cached, work) = match addon {
             Some(addon) => {
+                if self.is_addon_disabled(&addon) {
+                    return;
+                }
                 let cached = self.cached_for_addon(&addon, &title, now);
                 if cached.as_ref().is_some_and(|cached| cached.is_fresh(now)) {
                     return;
@@ -800,9 +845,20 @@ impl HostView {
         let replacing = job.key.clone();
         let read = match &job.work {
             Work::Addon { addon, asked } => self.read_title(addon, asked, job.answered.as_ref()),
-            Work::Discovered { id, kind } => {
-                self.read_discovered(*id, *kind, job.answered.as_ref())
-            }
+            Work::Discovered { id, kind } => match job.answered.as_ref() {
+                // A copy supplied by an Addon since switched off is only
+                // described again by TMDB: it stays that Addon's Title, so its
+                // card and a re-enabled Addon still find it (ADR-0044 §2).
+                Some(answered)
+                    if answered
+                        .addon
+                        .as_ref()
+                        .is_some_and(|addon| self.is_addon_disabled(addon)) =>
+                {
+                    self.read_discovered_onto(answered, *id, *kind)
+                }
+                answered => self.read_discovered(*id, *kind, answered),
+            },
             Work::CatchUp { id, season, source } => {
                 // A caught-up check is only ever queued for a copy it re-reads;
                 // a job that collapsed into one without it is not a check.
@@ -857,6 +913,11 @@ impl HostView {
         let configured = self.addons.iter().find(|held| held.id() == addon).cloned();
 
         let (mut title, source, status, next_episode) = match configured {
+            Some(configured) if !configured.is_enabled() => {
+                return Err(ActionError::AddonDisabled {
+                    id: addon.as_str().to_owned(),
+                });
+            }
             Some(configured) => {
                 let requested = ResourceRequest::new(META, &asked.r#type, &asked.id);
                 if !configured.manifest().answers(&requested) {
@@ -1429,6 +1490,7 @@ impl HostView {
             return self
                 .addons
                 .iter()
+                .filter(|addon| addon.is_enabled())
                 .filter(|addon| addon.manifest().answers(&plain(video)))
                 .map(|addon| Asked {
                     addon: addon.clone(),
@@ -1438,12 +1500,14 @@ impl HostView {
         };
 
         let kind = tmdb_video.kind;
-        // Which spelling each Addon that offers the resource wants, settled
-        // before anything is resolved: an Addon with no `stream` resource is
-        // never worth an `/external_ids` ask.
+        // Which spelling each enabled Addon that offers the resource wants,
+        // settled before anything is resolved: an Addon with no `stream`
+        // resource — or one switched off by the owner — is never worth an
+        // `/external_ids` ask (ADR-0020, ADR-0044 §2).
         let spelled: Vec<(&Addon, Option<Spelling>)> = self
             .addons
             .iter()
+            .filter(|addon| addon.is_enabled())
             .filter(|addon| addon.manifest().declares(resource, &video.r#type))
             .map(|addon| {
                 let spelling = addon

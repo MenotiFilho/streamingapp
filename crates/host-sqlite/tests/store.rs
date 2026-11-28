@@ -837,3 +837,34 @@ fn a_stored_addon_id_that_is_not_an_id_is_reported_and_not_a_panic() {
         "an id the parser would refuse is refused however it arrives: {read:?}"
     );
 }
+
+#[test]
+fn enabled_and_disabled_addons_round_trip_with_their_order() {
+    let (_directory, path) = store_on_disk();
+    let store = SqliteStore::open(&path).expect("the store opens");
+    let first = addon(
+        "org.example.first",
+        "https://first.example.com/manifest.json",
+        "1.0.0",
+        "top",
+    )
+    .with_enabled(false);
+    let second = addon(
+        "org.example.second",
+        "https://second.example.com/manifest.json",
+        "2.0.0",
+        "popular",
+    );
+
+    store
+        .write_addons(&[first.clone(), second.clone()])
+        .expect("the store writes enabled and disabled Addons");
+
+    drop(store);
+    let reopened = SqliteStore::open(&path).expect("the store reopens");
+    let read = reopened.read_addons().expect("the Addons read back");
+
+    assert_eq!(read, vec![first, second]);
+    assert!(!read[0].is_enabled());
+    assert!(read[1].is_enabled());
+}

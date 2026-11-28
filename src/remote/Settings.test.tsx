@@ -69,6 +69,7 @@ const CINEMETA: AddonManifest = {
   catalogs: [{ type: "movie", id: "top", name: "Top", extra: [] }],
   idPrefixes: ["tt"],
   behaviorHints: { configurable: false, configurationRequired: false },
+  enabled: true,
 };
 
 const ADDRESS = "192.168.1.20:8090";

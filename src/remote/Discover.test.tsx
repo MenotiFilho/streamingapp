@@ -53,6 +53,7 @@ const CINEMETA: AddonManifest = {
   catalogs: [FILMS, FRESH, SHOWS],
   idPrefixes: ["tt"],
   behaviorHints: { configurable: false, configurationRequired: false },
+  enabled: true,
 };
 
 const KEYED: Snapshot = {

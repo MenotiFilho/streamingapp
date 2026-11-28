@@ -12,13 +12,16 @@ import type { AddonManifest, LibraryEntry } from "./wire";
 import type { ActionError } from "./errors";
 import type { OpenablePreview } from "./title";
 
-/** The first configured Addon whose `meta` resource answers for this item. */
+/** The first configured, enabled Addon whose `meta` resource answers for this item. */
 export function libraryAddon(
   addons: readonly AddonManifest[],
   entry: Pick<LibraryEntry, "id" | "type">,
 ): AddonManifest | null {
   return (
     addons.find((addon) => {
+      if (!addon.enabled) {
+        return false;
+      }
       const resource = addon.resources.find((held) => held.name === "meta");
       if (!resource) {
         return false;

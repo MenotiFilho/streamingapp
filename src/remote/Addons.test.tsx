@@ -37,6 +37,7 @@ const CINEMETA: AddonManifest = {
   catalogs: [{ type: "movie", id: "top", name: "Top", extra: [] }],
   idPrefixes: ["tt"],
   behaviorHints: { configurable: false, configurationRequired: false },
+  enabled: true,
 };
 
 const SUBTITLES: AddonManifest = {
@@ -48,6 +49,7 @@ const SUBTITLES: AddonManifest = {
   catalogs: [],
   idPrefixes: ["tt"],
   behaviorHints: { configurable: false, configurationRequired: false },
+  enabled: true,
 };
 
 function withAddons(addons: AddonManifest[], revision = 1): Snapshot {

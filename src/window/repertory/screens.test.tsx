@@ -40,6 +40,7 @@ const CINEMETA: AddonManifest = {
   catalogs: [],
   idPrefixes: ["tt"],
   behaviorHints: { configurable: false, configurationRequired: false },
+  enabled: true,
 };
 
 const TORRENTIO: AddonManifest = {
@@ -51,6 +52,7 @@ const TORRENTIO: AddonManifest = {
   catalogs: [],
   idPrefixes: ["tt"],
   behaviorHints: { configurable: false, configurationRequired: false },
+  enabled: true,
 };
 
 const AIOSTREAMS: AddonManifest = {
