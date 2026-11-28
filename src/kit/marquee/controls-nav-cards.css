@@ -1,0 +1,1102 @@
+/*
+ * Marquee sheets C1 Actions, C2 Navigation, C3 Cards and C4 Hero (#366).
+ *
+ * Every measurement is the mockup's own, from `docs/design/marquee/scripts/
+ * build.js`, given in 1920×1080 reference units as `calc(var(--mq-u) * N)`.
+ * Colours come from `--mq-*` tokens.
+ *
+ * Focus (§5, ADR-0037) is drawn two ways, always together: DOM focus under
+ * `html[data-input="navigation"]`, and `data-focused="true"` from a `focused`
+ * prop. A pointer press paints nothing.
+ */
+
+@import "./base.css";
+
+/* ==========================================================================
+ * C1 Actions
+ * ========================================================================== */
+
+.mq-button,
+.mq-icon-button {
+  --mq-control-bg: var(--mq-glass);
+  --mq-control-fg: var(--mq-white);
+}
+
+button.mq-button,
+button.mq-icon-button,
+button.mq-chip {
+  box-sizing: border-box;
+  flex: none;
+  margin: 0;
+  border: 0;
+  border-radius: var(--mq-radius-full);
+  font-family: var(--mq-font);
+  line-height: var(--mq-leading);
+  white-space: nowrap;
+  cursor: pointer;
+  outline: none;
+  transition:
+    background-color var(--mq-motion-fade) var(--mq-ease),
+    color var(--mq-motion-fade) var(--mq-ease),
+    box-shadow var(--mq-motion-fade) var(--mq-ease),
+    opacity var(--mq-motion-fade) var(--mq-ease);
+}
+
+button.mq-button {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: calc(var(--mq-u) * 12);
+  background: var(--mq-control-bg);
+  color: var(--mq-control-fg);
+  font-weight: var(--mq-weight-bold);
+}
+
+.mq-button[data-size="lg"] {
+  height: calc(var(--mq-u) * 60);
+  padding: 0 calc(var(--mq-u) * 30);
+  font-size: var(--mq-text-control);
+}
+
+.mq-button[data-size="md"] {
+  height: calc(var(--mq-u) * 48);
+  padding: 0 calc(var(--mq-u) * 22);
+  font-size: var(--mq-text-label-sm);
+}
+
+.mq-button[data-size="lg"] .mq-button-icon {
+  width: calc(var(--mq-u) * 22);
+  height: calc(var(--mq-u) * 22);
+}
+
+.mq-button[data-size="md"] .mq-button-icon {
+  width: calc(var(--mq-u) * 18);
+  height: calc(var(--mq-u) * 18);
+}
+
+button.mq-icon-button {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  padding: 0;
+  background: var(--mq-control-bg);
+  color: var(--mq-control-fg);
+}
+
+.mq-icon-button[data-size="lg"] {
+  width: calc(var(--mq-u) * 80);
+  height: calc(var(--mq-u) * 80);
+}
+
+.mq-icon-button[data-size="md"] {
+  width: calc(var(--mq-u) * 56);
+  height: calc(var(--mq-u) * 56);
+}
+
+.mq-icon-button[data-size="sm"] {
+  width: calc(var(--mq-u) * 48);
+  height: calc(var(--mq-u) * 48);
+}
+
+.mq-icon-button[data-size="lg"] .mq-icon-button-icon {
+  width: calc(var(--mq-u) * 34);
+  height: calc(var(--mq-u) * 34);
+}
+
+.mq-icon-button[data-size="md"] .mq-icon-button-icon {
+  width: calc(var(--mq-u) * 26);
+  height: calc(var(--mq-u) * 26);
+}
+
+.mq-icon-button[data-size="sm"] .mq-icon-button-icon {
+  width: calc(var(--mq-u) * 22);
+  height: calc(var(--mq-u) * 22);
+}
+
+.mq-button[data-kind="primary"],
+.mq-icon-button[data-kind="primary"] {
+  --mq-control-bg: var(--mq-accent);
+  --mq-control-fg: var(--mq-ink);
+}
+
+.mq-button[data-kind="secondary"],
+.mq-icon-button[data-kind="glass"] {
+  --mq-control-bg: var(--mq-glass);
+  --mq-control-fg: var(--mq-white);
+}
+
+.mq-icon-button[data-kind="solid"] {
+  --mq-control-bg: var(--mq-surface-3);
+  --mq-control-fg: var(--mq-white);
+}
+
+.mq-button[data-kind="ghost"],
+.mq-icon-button[data-kind="ghost"] {
+  --mq-control-bg: transparent;
+  --mq-control-fg: var(--mq-white);
+}
+
+.mq-button[data-kind="danger"],
+.mq-icon-button[data-kind="danger"] {
+  --mq-control-bg: var(--mq-danger);
+  --mq-control-fg: var(--mq-white);
+}
+
+/* Chip: 46px; off is white at 10%, on is lavender with a bold check. */
+button.mq-chip {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: calc(var(--mq-u) * 8);
+  height: calc(var(--mq-u) * 46);
+  padding: 0 calc(var(--mq-u) * 22);
+  background: var(--mq-glass-subtle);
+  color: var(--mq-white);
+  font-size: var(--mq-text-label);
+  font-weight: var(--mq-weight-semibold);
+}
+
+button.mq-chip[aria-pressed="true"] {
+  background: var(--mq-accent);
+  color: var(--mq-ink);
+  font-weight: var(--mq-weight-bold);
+}
+
+.mq-chip .mq-chip-check {
+  width: calc(var(--mq-u) * 18);
+  height: calc(var(--mq-u) * 18);
+}
+
+/* Focus: every kind turns white with ink content (after the kinds, to win). */
+html[data-input="navigation"] .mq-button:focus,
+.mq-button[data-focused="true"],
+html[data-input="navigation"] .mq-icon-button:focus,
+.mq-icon-button[data-focused="true"] {
+  --mq-control-bg: var(--mq-white);
+  --mq-control-fg: var(--mq-ink);
+  box-shadow: var(--mq-shadow-focus);
+}
+
+html[data-input="navigation"] button.mq-chip:focus,
+button.mq-chip[data-focused="true"] {
+  background: var(--mq-white);
+  color: var(--mq-ink);
+  font-weight: var(--mq-weight-bold);
+  box-shadow: var(--mq-shadow-sm);
+}
+
+button.mq-button:disabled,
+button.mq-icon-button:disabled,
+button.mq-chip:disabled {
+  opacity: 0.4;
+  cursor: default;
+}
+
+/* Badge: 28px, radius 6, 14/700 tracking 0.4. */
+.mq-badge {
+  box-sizing: border-box;
+  display: inline-flex;
+  flex: none;
+  align-items: center;
+  justify-content: center;
+  height: calc(var(--mq-u) * 28);
+  padding: 0 calc(var(--mq-u) * 10);
+  border-radius: var(--mq-radius-6);
+  font-family: var(--mq-font);
+  font-size: var(--mq-text-badge);
+  font-weight: var(--mq-weight-bold);
+  letter-spacing: var(--mq-tracking-badge);
+  line-height: var(--mq-leading);
+  white-space: nowrap;
+}
+
+.mq-badge[data-tone="neutral"] {
+  background: var(--mq-glass);
+  color: var(--mq-white);
+}
+
+.mq-badge[data-tone="accent"] {
+  background: var(--mq-accent);
+  color: var(--mq-ink);
+}
+
+.mq-badge[data-tone="imdb"] {
+  background: var(--mq-imdb);
+  color: var(--mq-ink);
+}
+
+.mq-badge[data-tone="ok"] {
+  background: color-mix(in srgb, var(--mq-ok) 20%, transparent);
+  color: var(--mq-ok);
+}
+
+.mq-badge[data-tone="warn"] {
+  background: color-mix(in srgb, var(--mq-warn) 20%, transparent);
+  color: var(--mq-warn);
+}
+
+.mq-badge[data-tone="danger"] {
+  background: var(--mq-danger-badge-bg);
+  color: var(--mq-danger);
+}
+
+/* ==========================================================================
+ * C2 Navigation
+ * ========================================================================== */
+
+.mq-brand-mark {
+  position: relative;
+  display: block;
+  flex: none;
+  width: calc(var(--mq-u) * 48);
+  height: calc(var(--mq-u) * 48);
+  border-radius: var(--mq-radius-14);
+  background: var(--mq-accent);
+  color: var(--mq-ink);
+}
+
+/* The mockup sets the glyph one unit right of centre. */
+.mq-brand-mark .mq-brand-mark-glyph {
+  position: absolute;
+  top: calc(var(--mq-u) * 12);
+  left: calc(var(--mq-u) * 13);
+  width: calc(var(--mq-u) * 24);
+  height: calc(var(--mq-u) * 24);
+}
+
+.mq-nav-item {
+  --mq-nav-bg: transparent;
+  --mq-nav-icon: rgb(255 255 255 / 0.65);
+  --mq-nav-label: var(--mq-text-muted);
+}
+
+button.mq-nav-item {
+  box-sizing: border-box;
+  display: flex;
+  flex: none;
+  align-items: center;
+  overflow: hidden;
+  width: calc(var(--mq-u) * 56);
+  height: calc(var(--mq-u) * 56);
+  margin: 0;
+  padding: 0 0 0 calc(var(--mq-u) * 15);
+  border: 0;
+  border-radius: var(--mq-radius-full);
+  background: var(--mq-nav-bg);
+  color: var(--mq-nav-label);
+  font-family: var(--mq-font);
+  font-size: var(--mq-text-control);
+  font-weight: var(--mq-weight-bold);
+  line-height: var(--mq-leading);
+  cursor: pointer;
+  outline: none;
+  transition:
+    background-color var(--mq-motion-fade) var(--mq-ease),
+    color var(--mq-motion-fade) var(--mq-ease),
+    box-shadow var(--mq-motion-fade) var(--mq-ease);
+}
+
+.mq-nav-item[data-expanded="true"] {
+  width: calc(var(--mq-u) * 280);
+  padding-left: calc(var(--mq-u) * 18);
+}
+
+.mq-nav-item .mq-nav-item-icon {
+  width: calc(var(--mq-u) * 26);
+  height: calc(var(--mq-u) * 26);
+  color: var(--mq-nav-icon);
+}
+
+.mq-nav-item-label {
+  flex: none;
+  margin-left: calc(var(--mq-u) * 16);
+  white-space: nowrap;
+  opacity: 0;
+}
+
+.mq-nav-item[data-expanded="true"] .mq-nav-item-label {
+  opacity: 1;
+}
+
+.mq-nav-item[aria-current="page"] {
+  --mq-nav-bg: var(--mq-accent-soft);
+  --mq-nav-icon: var(--mq-accent);
+  --mq-nav-label: var(--mq-white);
+}
+
+html[data-input="navigation"] .mq-nav-item:focus,
+.mq-nav-item[data-focused="true"] {
+  --mq-nav-bg: var(--mq-white);
+  --mq-nav-icon: var(--mq-ink);
+  --mq-nav-label: var(--mq-ink);
+  box-shadow: var(--mq-shadow-sm);
+}
+
+/*
+ * The rail. Motion drives `--mq-rail-open` (the width) and `--mq-rail-fade`
+ * (the dim, the panel and the labels) from 0 collapsed to 1 expanded.
+ */
+.mq-nav-rail {
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  left: 0;
+  z-index: 10;
+  width: calc(var(--mq-u) * (120 + 240 * var(--mq-rail-open, 0)));
+  font-family: var(--mq-font);
+  pointer-events: none;
+}
+
+.mq-nav-rail-dim,
+.mq-nav-rail-scrim,
+.mq-nav-rail-panel {
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  left: 0;
+}
+
+/* Open, it dims the whole screen behind it. */
+.mq-nav-rail-dim {
+  width: 100vw;
+  background: var(--mq-scrim-dim);
+  opacity: var(--mq-rail-fade, 0);
+}
+
+.mq-nav-rail-scrim {
+  width: calc(var(--mq-u) * 160);
+  background: linear-gradient(
+    to right,
+    color-mix(in srgb, var(--mq-canvas) 85%, transparent) 0%,
+    color-mix(in srgb, var(--mq-canvas) 55%, transparent) 50%,
+    transparent 100%
+  );
+  opacity: calc(1 - var(--mq-rail-fade, 0));
+}
+
+.mq-nav-rail-panel {
+  width: calc(var(--mq-u) * (120 + 240 * var(--mq-rail-open, 0)));
+  background: var(--mq-canvas);
+  opacity: var(--mq-rail-fade, 0);
+}
+
+.mq-nav-rail-panel::after {
+  content: "";
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  left: 100%;
+  width: calc(var(--mq-u) * 260);
+  background: linear-gradient(to right, var(--mq-canvas), transparent);
+}
+
+.mq-nav-rail .mq-nav-rail-mark {
+  position: absolute;
+  top: calc(var(--mq-u) * 40);
+  left: calc(var(--mq-u) * 36);
+}
+
+.mq-nav-rail-items {
+  position: absolute;
+  top: calc(var(--mq-u) * 300);
+  left: calc(var(--mq-u) * 32);
+  display: flex;
+  flex-direction: column;
+  gap: calc(var(--mq-u) * 24);
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  pointer-events: auto;
+}
+
+.mq-nav-rail .mq-nav-item[data-expanded] {
+  width: calc(var(--mq-u) * (56 + 224 * var(--mq-rail-open, 0)));
+  padding-left: calc(var(--mq-u) * (15 + 3 * var(--mq-rail-open, 0)));
+}
+
+.mq-nav-rail .mq-nav-item[data-expanded] .mq-nav-item-label {
+  opacity: var(--mq-rail-fade, 0);
+}
+
+.mq-nav-rail-clock {
+  position: absolute;
+  bottom: calc(var(--mq-u) * 47);
+  left: calc(var(--mq-u) * 38);
+  color: var(--mq-text-faint);
+  font-size: var(--mq-text-label-sm);
+  font-weight: var(--mq-weight-semibold);
+  line-height: var(--mq-leading);
+}
+
+/* Hero ticks: 8px dots, the current one 44px and filling. */
+.mq-hero-ticks {
+  display: inline-flex;
+  align-items: center;
+  gap: calc(var(--mq-u) * 8);
+  height: calc(var(--mq-u) * 8);
+}
+
+/* A larger pointer target than the 8px drawn, without moving the drawing. */
+.mq-hero-tick-button {
+  display: block;
+  margin: calc(var(--mq-u) * -8) calc(var(--mq-u) * -4);
+  padding: calc(var(--mq-u) * 8) calc(var(--mq-u) * 4);
+  border: 0;
+  background: transparent;
+}
+
+button.mq-hero-tick-button {
+  cursor: pointer;
+}
+
+.mq-hero-tick {
+  display: block;
+  overflow: hidden;
+  width: calc(var(--mq-u) * 8);
+  height: calc(var(--mq-u) * 8);
+  border-radius: calc(var(--mq-u) * 4);
+  background: var(--mq-track-bg);
+  transition: width var(--mq-motion-quick) var(--mq-ease);
+}
+
+.mq-hero-tick[data-active="true"] {
+  width: calc(var(--mq-u) * 44);
+}
+
+.mq-hero-tick-fill {
+  display: block;
+  width: calc(var(--mq-u) * 44 * var(--mq-tick-progress, 0));
+  height: 100%;
+  border-radius: calc(var(--mq-u) * 4);
+  background: var(--mq-white);
+  transition: width 100ms linear;
+}
+
+/* ==========================================================================
+ * C3 Cards & rows
+ * ========================================================================== */
+
+/* The button keeps the resting footprint; the frame inside it grows. */
+button.mq-card {
+  position: relative;
+  display: block;
+  flex: none;
+  margin: 0;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  font-family: var(--mq-font);
+  cursor: pointer;
+  outline: none;
+}
+
+button.mq-card:disabled {
+  cursor: default;
+}
+
+button.mq-poster {
+  width: calc(var(--mq-u) * 208);
+  height: calc(var(--mq-u) * 312);
+}
+
+button.mq-wide-card {
+  width: calc(var(--mq-u) * 400);
+  height: calc(var(--mq-u) * 225);
+}
+
+button.mq-episode-card {
+  width: calc(var(--mq-u) * 408);
+  height: calc(var(--mq-u) * 230);
+}
+
+/*
+ * Motion scales the frame; `--mq-card-zoom` divides the radius, ring and shadow
+ * so they land on the mockup's sizes once grown. No transition here names
+ * `transform`.
+ *
+ * The 4px white outline outside the card is a zero-blur shadow: Chromium rounds
+ * `outline-width` down to whole pixels, which draws a divided 3.7px as 3px.
+ */
+.mq-card-frame {
+  position: absolute;
+  inset: 0;
+  display: block;
+  overflow: hidden;
+  border-radius: calc(var(--mq-u) * 16 / var(--mq-card-zoom, 1));
+  background: var(--mq-surface-2);
+  transition: box-shadow var(--mq-motion-fade) var(--mq-ease);
+}
+
+html[data-input="navigation"] .mq-card:focus,
+.mq-card[data-focused="true"] {
+  z-index: 1;
+}
+
+html[data-input="navigation"] .mq-card:focus .mq-card-frame,
+.mq-card[data-focused="true"] .mq-card-frame {
+  box-shadow:
+    0 0 0 calc(var(--mq-u) * 4 / var(--mq-card-zoom, 1)) var(--mq-white),
+    0 calc(var(--mq-u) * 24 / var(--mq-card-zoom, 1))
+      calc(var(--mq-u) * 52.8 / var(--mq-card-zoom, 1)) rgb(0 0 0 / 0.55);
+}
+
+.mq-card-art {
+  position: absolute;
+  inset: 0;
+  display: block;
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+}
+
+/* No art: the name on surface-2 (§9). */
+.mq-card-plate {
+  position: absolute;
+  inset: 0;
+  box-sizing: border-box;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: calc(var(--mq-u) * 4);
+  overflow: hidden;
+  padding: calc(var(--mq-u) * 16);
+  color: var(--mq-text-muted);
+  font-size: var(--mq-text-label);
+  font-weight: var(--mq-weight-bold);
+  line-height: var(--mq-leading);
+  text-align: center;
+  overflow-wrap: anywhere;
+}
+
+.mq-card-watched {
+  position: absolute;
+  top: calc(var(--mq-u) * 12);
+  right: calc(var(--mq-u) * 12);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: calc(var(--mq-u) * 36);
+  height: calc(var(--mq-u) * 36);
+  border-radius: var(--mq-radius-full);
+  background: color-mix(in srgb, var(--mq-ink) 72%, transparent);
+  color: var(--mq-accent);
+}
+
+.mq-card-watched .mq-card-watched-check {
+  width: calc(var(--mq-u) * 20);
+  height: calc(var(--mq-u) * 20);
+}
+
+.mq-episode-card .mq-card-watched {
+  top: calc(var(--mq-u) * 14);
+  right: calc(var(--mq-u) * 14);
+  width: calc(var(--mq-u) * 38);
+  height: calc(var(--mq-u) * 38);
+  color: var(--mq-ok);
+}
+
+.mq-episode-card .mq-card-watched-check {
+  width: calc(var(--mq-u) * 22);
+  height: calc(var(--mq-u) * 22);
+}
+
+.mq-card-progress {
+  position: absolute;
+  right: calc(var(--mq-u) * 14);
+  bottom: calc(var(--mq-u) * 9);
+  left: calc(var(--mq-u) * 14);
+  display: block;
+  height: calc(var(--mq-u) * 5);
+  border-radius: calc(var(--mq-u) * 3);
+  background: var(--mq-track-bg);
+}
+
+.mq-wide-card .mq-card-progress {
+  right: calc(var(--mq-u) * 20);
+  left: calc(var(--mq-u) * 20);
+}
+
+.mq-episode-card .mq-card-progress {
+  right: calc(var(--mq-u) * 18);
+  bottom: calc(var(--mq-u) * 13);
+  left: calc(var(--mq-u) * 18);
+  background: rgb(255 255 255 / 0.3);
+}
+
+.mq-card-progress-fill {
+  display: block;
+  height: 100%;
+  border-radius: calc(var(--mq-u) * 3);
+  background: var(--mq-accent);
+  transition: width var(--mq-motion-fade) var(--mq-ease);
+}
+
+.mq-wide-card-scrim {
+  position: absolute;
+  top: 35%;
+  right: 0;
+  bottom: 0;
+  left: 0;
+  background: linear-gradient(
+    to top,
+    color-mix(in srgb, var(--mq-canvas) 95%, transparent),
+    transparent
+  );
+}
+
+.mq-wide-card-logo {
+  position: absolute;
+  bottom: calc(var(--mq-u) * 28);
+  left: calc(var(--mq-u) * 20);
+  width: 45%;
+  height: 30%;
+  object-fit: contain;
+  object-position: left bottom;
+}
+
+.mq-wide-card-name {
+  position: absolute;
+  right: calc(var(--mq-u) * 20);
+  bottom: calc(var(--mq-u) * 28);
+  left: calc(var(--mq-u) * 20);
+  display: -webkit-box;
+  overflow: hidden;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 2;
+  color: var(--mq-white);
+  font-size: calc(var(--mq-u) * 24);
+  font-weight: var(--mq-weight-extrabold);
+  line-height: 1.2;
+  text-align: left;
+}
+
+.mq-wide-card .mq-wide-card-badge {
+  position: absolute;
+  top: calc(var(--mq-u) * 14);
+  left: calc(var(--mq-u) * 14);
+}
+
+.mq-wide-card[data-unplayable] .mq-card-art,
+.mq-wide-card[data-unplayable] .mq-wide-card-logo,
+.mq-wide-card[data-unplayable] .mq-wide-card-name,
+.mq-wide-card[data-unplayable] .mq-card-plate {
+  opacity: 0.4;
+}
+
+/* The play mark an episode card gains with focus: 64px, glyph set 2px right. */
+.mq-episode-card-play {
+  position: absolute;
+  top: calc(50% - var(--mq-u) * 32 / var(--mq-card-zoom, 1));
+  left: calc(50% - var(--mq-u) * 32 / var(--mq-card-zoom, 1));
+  width: calc(var(--mq-u) * 64 / var(--mq-card-zoom, 1));
+  height: calc(var(--mq-u) * 64 / var(--mq-card-zoom, 1));
+  border-radius: var(--mq-radius-full);
+  background: var(--mq-white);
+  color: var(--mq-ink);
+  opacity: 0;
+  transition: opacity var(--mq-motion-fade) var(--mq-ease);
+}
+
+.mq-episode-card .mq-episode-card-play-glyph {
+  position: absolute;
+  top: calc(var(--mq-u) * 18 / var(--mq-card-zoom, 1));
+  left: calc(var(--mq-u) * 20 / var(--mq-card-zoom, 1));
+  width: calc(var(--mq-u) * 28 / var(--mq-card-zoom, 1));
+  height: calc(var(--mq-u) * 28 / var(--mq-card-zoom, 1));
+}
+
+html[data-input="navigation"] .mq-episode-card:focus .mq-episode-card-play,
+.mq-episode-card[data-focused="true"] .mq-episode-card-play {
+  opacity: 1;
+}
+
+/* Captions draw over a focused card's shadow, as the mockup layers them. */
+.mq-card-caption,
+.mq-episode-caption {
+  position: relative;
+  z-index: 2;
+  box-sizing: border-box;
+  font-family: var(--mq-font);
+  line-height: var(--mq-leading);
+  transition: transform var(--mq-motion-quick) var(--mq-ease);
+}
+
+.mq-card-caption p,
+.mq-episode-caption p {
+  margin: 0;
+}
+
+.mq-card-caption {
+  width: calc(var(--mq-u) * 400);
+  min-height: calc(var(--mq-u) * 56);
+}
+
+.mq-card-caption .mq-card-caption-title {
+  overflow: hidden;
+  color: var(--mq-white);
+  font-size: calc(var(--mq-u) * 19);
+  font-weight: var(--mq-weight-bold);
+  line-height: calc(var(--mq-u) * 26);
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+
+.mq-card-caption .mq-card-caption-note {
+  margin-top: calc(var(--mq-u) * 2);
+  color: var(--mq-text-faint);
+  font-size: var(--mq-text-caption);
+  font-weight: var(--mq-weight-medium);
+  line-height: calc(var(--mq-u) * 22);
+}
+
+.mq-episode-caption {
+  width: calc(var(--mq-u) * 408);
+  min-height: calc(var(--mq-u) * 136);
+}
+
+.mq-episode-caption .mq-episode-caption-number {
+  margin-bottom: calc(var(--mq-u) * 5);
+  color: var(--mq-accent);
+  font-size: var(--mq-text-overline);
+  font-weight: var(--mq-weight-bold);
+  letter-spacing: calc(var(--mq-u) * 1.2);
+  line-height: calc(var(--mq-u) * 19);
+  text-transform: uppercase;
+}
+
+.mq-episode-caption .mq-episode-caption-title {
+  overflow: hidden;
+  color: var(--mq-white);
+  font-size: calc(var(--mq-u) * 21);
+  font-weight: var(--mq-weight-bold);
+  line-height: calc(var(--mq-u) * 28);
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+
+.mq-episode-caption .mq-episode-caption-note {
+  margin-top: calc(var(--mq-u) * 6);
+  color: var(--mq-text-faint);
+  font-size: var(--mq-text-caption);
+  font-weight: var(--mq-weight-medium);
+  line-height: calc(var(--mq-u) * 22);
+}
+
+.mq-episode-caption .mq-episode-caption-description {
+  display: -webkit-box;
+  overflow: hidden;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 2;
+  margin-top: calc(var(--mq-u) * 8);
+  color: var(--mq-text-muted);
+  font-size: var(--mq-text-caption);
+  font-weight: var(--mq-weight-medium);
+  line-height: calc(var(--mq-u) * 22);
+}
+
+/* A caption placed straight after its card sits 14px under it. */
+.mq-wide-card + .mq-card-caption,
+.mq-episode-card + .mq-card-caption,
+.mq-episode-card + .mq-episode-caption {
+  margin-top: calc(var(--mq-u) * 14);
+}
+
+/* A focused card's caption moves down by half the growth: 8px wide, 7px episode. */
+html[data-input="navigation"] .mq-wide-card:focus + .mq-card-caption,
+.mq-wide-card[data-focused="true"] + .mq-card-caption {
+  transform: translateY(calc(var(--mq-u) * 8));
+}
+
+html[data-input="navigation"] .mq-episode-card:focus + .mq-card-caption,
+.mq-episode-card[data-focused="true"] + .mq-card-caption,
+html[data-input="navigation"] .mq-episode-card:focus + .mq-episode-caption,
+.mq-episode-card[data-focused="true"] + .mq-episode-caption {
+  transform: translateY(calc(var(--mq-u) * 7));
+}
+
+.mq-row-header {
+  display: flex;
+  align-items: center;
+  gap: calc(var(--mq-u) * 16);
+  height: calc(var(--mq-u) * 40);
+  font-family: var(--mq-font);
+  line-height: var(--mq-leading);
+  white-space: nowrap;
+}
+
+.mq-row-header .mq-row-header-title {
+  margin: 0;
+  color: var(--mq-white);
+  font-size: var(--mq-text-row-head);
+  font-weight: var(--mq-weight-bold);
+  line-height: var(--mq-leading);
+}
+
+.mq-row-header-source {
+  color: var(--mq-text-faint);
+  font-size: var(--mq-text-label-sm);
+  font-weight: var(--mq-weight-semibold);
+}
+
+/* ==========================================================================
+ * C4 Hero & meta
+ * ========================================================================== */
+
+.mq-meta-line {
+  display: flex;
+  align-items: center;
+  gap: calc(var(--mq-u) * 14);
+  height: calc(var(--mq-u) * 30);
+  font-family: var(--mq-font);
+  font-size: calc(var(--mq-u) * 19);
+  line-height: var(--mq-leading);
+  white-space: nowrap;
+}
+
+.mq-meta-line-rating {
+  color: var(--mq-white);
+  font-weight: var(--mq-weight-bold);
+}
+
+.mq-meta-line-fact {
+  color: var(--mq-text-muted);
+  font-weight: var(--mq-weight-medium);
+}
+
+.mq-meta-line-fact[data-fact="genres"] {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.mq-meta-line-dot {
+  flex: none;
+  width: calc(var(--mq-u) * 4);
+  height: calc(var(--mq-u) * 4);
+  border-radius: var(--mq-radius-full);
+  background: rgb(255 255 255 / 0.4);
+}
+
+.mq-hero {
+  position: relative;
+  isolation: isolate;
+  overflow: hidden;
+  width: 100%;
+  height: calc(var(--mq-u) * 880);
+  background: var(--mq-canvas);
+  color: var(--mq-white);
+  font-family: var(--mq-font);
+  line-height: var(--mq-leading);
+}
+
+.mq-hero[data-mode="following"] {
+  height: calc(var(--mq-u) * 810);
+}
+
+/*
+ * Motion drives `--mq-hero-shift` from 0 (1920×880 at the left edge) to 1
+ * (1440×810 at x 480).
+ */
+.mq-hero-art {
+  position: absolute;
+  top: 0;
+  right: 0;
+  left: calc(var(--mq-u) * 480 * var(--mq-hero-shift, 0));
+  height: calc(var(--mq-u) * (880 - 70 * var(--mq-hero-shift, 0)));
+}
+
+.mq-hero-layer {
+  position: absolute;
+  inset: 0;
+}
+
+.mq-hero-backdrop {
+  position: absolute;
+  inset: 0;
+  display: block;
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+}
+
+.mq-hero-scrim {
+  position: absolute;
+  left: 0;
+  pointer-events: none;
+  transition: opacity var(--mq-motion-fade) var(--mq-ease);
+}
+
+.mq-hero-scrim[data-scrim="rotating-left"] {
+  top: 0;
+  width: calc(var(--mq-u) * 1300);
+  height: calc(var(--mq-u) * 880);
+  background: linear-gradient(
+    to right,
+    color-mix(in srgb, var(--mq-canvas) 94%, transparent) 0%,
+    color-mix(in srgb, var(--mq-canvas) 70%, transparent) 45%,
+    transparent 100%
+  );
+}
+
+.mq-hero-scrim[data-scrim="following-left"] {
+  top: 0;
+  width: calc(var(--mq-u) * 800);
+  height: 100%;
+  background: linear-gradient(to right, var(--mq-canvas), transparent);
+  opacity: var(--mq-hero-shift, 0);
+  /* Motion drives the shift; a transition of its own would trail behind it. */
+  transition: none;
+}
+
+.mq-hero-scrim[data-scrim="rotating-bottom"] {
+  top: calc(var(--mq-u) * 360);
+  right: 0;
+  height: calc(var(--mq-u) * 522);
+  background: linear-gradient(
+    to top,
+    var(--mq-canvas) 0%,
+    color-mix(in srgb, var(--mq-canvas) 92%, transparent) 25%,
+    transparent 100%
+  );
+}
+
+.mq-hero-scrim[data-scrim="following-bottom"] {
+  top: calc(var(--mq-u) * 360);
+  right: 0;
+  height: calc(var(--mq-u) * 452);
+  background: linear-gradient(
+    to top,
+    var(--mq-canvas) 0%,
+    color-mix(in srgb, var(--mq-canvas) 96%, transparent) 12%,
+    transparent 100%
+  );
+  opacity: 0;
+}
+
+.mq-hero[data-mode="following"] .mq-hero-scrim[data-scrim="rotating-left"],
+.mq-hero[data-mode="following"] .mq-hero-scrim[data-scrim="rotating-bottom"] {
+  opacity: 0;
+}
+
+.mq-hero[data-mode="following"] .mq-hero-scrim[data-scrim="following-bottom"] {
+  opacity: 1;
+}
+
+.mq-hero-copy {
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+}
+
+/* The logo's box, anchored bottom-left: 560×180 ending at y 290. */
+.mq-hero .mq-hero-title {
+  position: absolute;
+  top: calc(var(--mq-u) * 110);
+  left: var(--mq-margin-rail);
+  display: flex;
+  align-items: flex-end;
+  width: calc(var(--mq-u) * 560);
+  height: calc(var(--mq-u) * 180);
+  margin: 0;
+}
+
+.mq-hero-logo {
+  display: block;
+  width: 100%;
+  height: 100%;
+  object-fit: contain;
+  object-position: left bottom;
+}
+
+.mq-hero-name {
+  display: -webkit-box;
+  overflow: hidden;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 2;
+  font-size: var(--mq-text-screen-title);
+  font-weight: var(--mq-weight-extrabold);
+  line-height: var(--mq-leading);
+}
+
+.mq-hero .mq-hero-meta {
+  position: absolute;
+  top: calc(var(--mq-u) * 318);
+  left: var(--mq-margin-rail);
+  max-width: calc(100% - var(--mq-margin-rail) * 2);
+}
+
+.mq-hero .mq-hero-synopsis {
+  position: absolute;
+  top: calc(var(--mq-u) * 366);
+  left: var(--mq-margin-rail);
+  display: -webkit-box;
+  overflow: hidden;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 3;
+  width: calc(var(--mq-u) * 700);
+  margin: 0;
+  color: var(--mq-text-muted);
+  font-size: var(--mq-text-body);
+  font-weight: var(--mq-weight-medium);
+  line-height: var(--mq-leading-body);
+}
+
+.mq-hero .mq-hero-copy[data-mode="following"] .mq-hero-title {
+  top: calc(var(--mq-u) * 100);
+  width: calc(var(--mq-u) * 520);
+  height: calc(var(--mq-u) * 150);
+}
+
+.mq-hero .mq-hero-copy[data-mode="following"] .mq-hero-meta {
+  top: calc(var(--mq-u) * 280);
+}
+
+.mq-hero .mq-hero-copy[data-mode="following"] .mq-hero-synopsis {
+  top: calc(var(--mq-u) * 328);
+  width: calc(var(--mq-u) * 680);
+}
+
+.mq-hero-actions {
+  position: absolute;
+  top: calc(var(--mq-u) * 508);
+  left: var(--mq-margin-rail);
+  display: flex;
+  align-items: center;
+  gap: calc(var(--mq-u) * 14);
+  height: calc(var(--mq-u) * 60);
+  animation: mq-hero-appear var(--mq-motion-fade) var(--mq-ease);
+}
+
+/* Five ticks start at x 1720: 92px in from the right edge. */
+.mq-hero-ticks-slot {
+  position: absolute;
+  top: calc(var(--mq-u) * 590);
+  right: calc(var(--mq-u) * 92);
+  height: calc(var(--mq-u) * 8);
+  animation: mq-hero-appear var(--mq-motion-fade) var(--mq-ease);
+}
+
+.mq-hero-ticks-slot .mq-hero-ticks {
+  display: flex;
+}
+
+@keyframes mq-hero-appear {
+  from {
+    opacity: 0;
+  }
+}
+
+/* Reduced motion keeps the fades and moves nothing (ADR-0031 §5). */
+@media (prefers-reduced-motion: reduce) {
+  .mq-card-caption,
+  .mq-episode-caption {
+    transform: none !important;
+  }
+
+  .mq-hero-tick,
+  .mq-hero-tick-fill,
+  .mq-card-progress-fill {
+    transition: none;
+  }
+}
