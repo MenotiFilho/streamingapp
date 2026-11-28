@@ -1,13 +1,5 @@
 import { motion } from "motion/react";
-import {
-  useEffect,
-  useId,
-  useLayoutEffect,
-  useRef,
-  useState,
-  type FocusEvent,
-  type KeyboardEvent,
-} from "react";
+import { useEffect, useId, useRef, useState, type FocusEvent, type KeyboardEvent } from "react";
 
 import { useReducedMotion } from "../../core/react/useReducedMotion";
 import { cx } from "./cx";
@@ -15,6 +7,7 @@ import { FormsIconButton } from "./FormsButton";
 import { formsPanel } from "./formsMotion";
 import { Icon } from "./icons";
 import { Switch } from "./Switch";
+import { staysWithRow, useRowFocus } from "./useRowFocus";
 
 /**
  * Props carry only what the Manifest says (ADR-0044 §1). There is no URL, no
@@ -88,29 +81,21 @@ export function AddonRow({
   const versionId = `${id}-version`;
   const hintId = `${id}-hint`;
   const row = useRef<HTMLDivElement>(null);
-  const main = useRef<HTMLButtonElement>(null);
+  const rowFocus = useRowFocus();
   /** Whether the focus is in the row, or left it only for a question it asked. */
   const [holding, setHolding] = useState(false);
-  /** The control of this row that had the focus last. */
-  const last = useRef<Element | null>(null);
 
   const focus = (event: FocusEvent<HTMLDivElement>) => {
-    last.current = event.target;
+    rowFocus.onFocus(event);
     setHolding(true);
   };
 
+  // Focus moving along the row stays in it. Focus moving into a question this
+  // row opened keeps the controls too, so Back finds the one that asked.
   const blur = (event: FocusEvent<HTMLDivElement>) => {
-    const next = event.relatedTarget;
-    // Focus moving along the row stays in it. Focus moving into a question this
-    // row opened keeps the controls too, so Back finds the one that asked.
-    if (
-      next instanceof Element &&
-      (event.currentTarget.contains(next) || next.closest('[aria-modal="true"]'))
-    ) {
-      return;
+    if (rowFocus.onBlur(event)) {
+      setHolding(false);
     }
-    last.current = null;
-    setHolding(false);
   };
 
   // Once a question has the focus, no blur of the row's says where it goes
@@ -120,31 +105,14 @@ export function AddonRow({
       return;
     }
     const landed = ({ target }: Event) => {
-      if (
-        target instanceof Element &&
-        !row.current?.contains(target) &&
-        !target.closest('[aria-modal="true"]')
-      ) {
+      if (!staysWithRow(row.current, target)) {
+        rowFocus.forget();
         setHolding(false);
       }
     };
     document.addEventListener("focusin", landed);
     return () => document.removeEventListener("focusin", landed);
   }, [holding]);
-
-  // A focused control can stop being one under the person: moving takes the
-  // controls off the row, and a move to an end disables the button that made it.
-  // The focus then goes to the row, which is what the arrows and OK speak to.
-  useLayoutEffect(() => {
-    const control = last.current;
-    if (!control || (control.isConnected && !control.matches(":disabled"))) {
-      return;
-    }
-    const active = document.activeElement;
-    if (active === document.body || active === control) {
-      main.current?.focus({ preventScroll: true });
-    }
-  });
 
   const keyDown = (event: KeyboardEvent<HTMLDivElement>) => {
     if (!moving || !MOVE_KEYS.has(event.key)) {
@@ -183,7 +151,7 @@ export function AddonRow({
       onKeyDown={keyDown}
     >
       <button
-        ref={main}
+        ref={rowFocus.main}
         type="button"
         className="mq-c7-row-main"
         aria-label={name}

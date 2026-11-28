@@ -304,6 +304,15 @@ html[data-input="navigation"] .mq-c7-ranked:focus-within,
   cursor: pointer;
 }
 
+/*
+ * A control beside it starts clear of it: the focus engine takes a control for
+ * "that way" only past `MIN_STEP`, so two that touch are no neighbours. The
+ * main button gives up the room, and every other control stays where it is.
+ */
+.mq-c7-row-main:not(:last-child) {
+  margin-right: calc(var(--mq-u) * 8);
+}
+
 .mq-c7-row-actions {
   display: flex;
   flex: none;
@@ -326,7 +335,9 @@ html[data-input="navigation"] .mq-c7-ranked:focus-within,
   text-align: left;
 }
 
-button.mq-c7-list-row {
+.mq-c7-list-row[data-focusable] {
+  color: var(--mq-white);
+  font-family: var(--mq-font);
   cursor: pointer;
 }
 
@@ -513,7 +524,7 @@ html[data-input="navigation"] .mq-c7-addon[data-moving="true"]:focus-within {
   display: inline-flex;
 }
 
-.mq-c7-dropdown-trigger {
+.mq-c7-dropdown-trigger[data-focusable] {
   display: inline-flex;
   align-items: center;
   gap: calc(var(--mq-u) * 8);

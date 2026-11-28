@@ -1,5 +1,5 @@
 import { AnimatePresence } from "motion/react";
-import { useRef } from "react";
+import { useLayoutEffect, useRef } from "react";
 
 import { cx } from "./cx";
 import { DropdownMenu, type DropdownOption } from "./DropdownMenu";
@@ -24,7 +24,8 @@ export type DropdownProps = {
 
 /**
  * A filter that holds one value: a pill that drops its menu under itself.
- * Choosing closes the menu and puts the focus back on the pill.
+ * Choosing closes the menu and puts the focus back on the pill, and so does the
+ * caller closing it while the focus is inside.
  */
 export function Dropdown({
   label,
@@ -38,7 +39,16 @@ export function Dropdown({
   className,
 }: DropdownProps) {
   const trigger = useRef<HTMLButtonElement>(null);
+  const drop = useRef<HTMLDivElement>(null);
   const value = options.find((option) => option.id === selected)?.label ?? "";
+
+  // The caller closed it (Back): the menu is on its way out and can hold no
+  // focus. A focus that is already elsewhere stays there.
+  useLayoutEffect(() => {
+    if (!open && drop.current?.contains(document.activeElement)) {
+      trigger.current?.focus();
+    }
+  }, [open]);
 
   return (
     <div className={cx("mq-c7-dropdown", className)}>
@@ -59,7 +69,7 @@ export function Dropdown({
       </button>
       <AnimatePresence>
         {open ? (
-          <div key="menu" className="mq-c7-dropdown-drop">
+          <div key="menu" ref={drop} className="mq-c7-dropdown-drop">
             <DropdownMenu
               label={label}
               options={options}

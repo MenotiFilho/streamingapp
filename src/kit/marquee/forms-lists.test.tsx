@@ -1,4 +1,5 @@
 import { act, fireEvent, render, screen, within } from "@testing-library/react";
+import { AnimatePresence } from "motion/react";
 import { useState } from "react";
 import { describe, expect, test, vi } from "vitest";
 
@@ -437,6 +438,38 @@ describe("the dropdown", () => {
     expect(trigger).toHaveFocus();
   });
 
+  const held = (open: boolean) => (
+    <>
+      <Dropdown
+        label="Genre"
+        options={GENRES}
+        selected="all"
+        open={open}
+        onOpenChange={() => {}}
+        onSelect={() => {}}
+      />
+      <button type="button">Elsewhere</button>
+    </>
+  );
+
+  test("closed by its caller while the menu holds the focus, the pill takes it back", () => {
+    const { rerender } = render(held(true));
+    focus(screen.getByRole("option", { name: "Drama" }));
+
+    rerender(held(false));
+
+    expect(button("Genre: All genres")).toHaveFocus();
+  });
+
+  test("closed by its caller after the focus left, it takes nothing back", () => {
+    const { rerender } = render(held(true));
+    focus(button("Elsewhere"));
+
+    rerender(held(false));
+
+    expect(button("Elsewhere")).toHaveFocus();
+  });
+
   test("a second press on the pill asks to close without choosing", () => {
     const onSelect = vi.fn();
     const onOpenChange = vi.fn();
@@ -474,6 +507,53 @@ describe("the ranked row", () => {
     expect(onMoveUp).toHaveBeenCalledTimes(up ? 1 : 0);
     expect(onMoveDown).toHaveBeenCalledTimes(down ? 1 : 0);
     expect(onRemove).toHaveBeenCalledOnce();
+  });
+
+  function Order() {
+    const [position, setPosition] = useState(2);
+    return (
+      <RankedRow
+        position={position}
+        count={3}
+        label="English"
+        onMoveUp={() => setPosition((held) => held - 1)}
+        onMoveDown={() => setPosition((held) => held + 1)}
+        onRemove={() => {}}
+      />
+    );
+  }
+
+  test.each([
+    { move: "Move up", landed: "1. English" },
+    { move: "Move down", landed: "3. English" },
+  ])("$move to an end leaves the focus on the row", ({ move, landed }) => {
+    render(<Order />);
+    focus(button("2. English"));
+    focus(button(move));
+
+    fireEvent.click(button(move));
+
+    expect(button(landed)).toHaveFocus();
+  });
+
+  test("a row the focus has left does not take it back when a control stops being one", () => {
+    const ranked = (count: number) => (
+      <RankedRow
+        position={2}
+        count={count}
+        label="English"
+        onMoveUp={() => {}}
+        onMoveDown={() => {}}
+        onRemove={() => {}}
+      />
+    );
+    const { rerender } = render(ranked(3));
+    focus(button("Move down"));
+    act(() => button("Move down").blur());
+
+    rerender(ranked(2));
+
+    expect(button("2. English")).not.toHaveFocus();
   });
 
   test("announces its place in the order", () => {
@@ -526,6 +606,30 @@ describe("the confirmation", () => {
     fireEvent.click(button("Remove"));
     expect(onConfirm).toHaveBeenCalledOnce();
     expect(onCancel).toHaveBeenCalledOnce();
+  });
+
+  test("on its way out it is inert, so no second answer leaves", () => {
+    const asked = (open: boolean) => (
+      <AnimatePresence>
+        {open ? (
+          <Confirm
+            key="confirm"
+            title="Remove MediaFusion?"
+            body="Its Streams stop showing on every client."
+            onConfirm={() => {}}
+            onCancel={() => {}}
+          />
+        ) : null}
+      </AnimatePresence>
+    );
+    const { rerender } = render(asked(true));
+    const dialog = screen.getByRole("dialog");
+    expect(dialog.closest("[inert]")).toBeNull();
+
+    rerender(asked(false));
+
+    expect(dialog).toBeInTheDocument();
+    expect(dialog.closest("[inert]")).not.toBeNull();
   });
 
   test("while the answer is in flight it takes no second one, and Cancel still answers", () => {

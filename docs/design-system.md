@@ -273,10 +273,10 @@ genres separated by dots.
   chosen.
 - **List row** 880×76: an icon, a label, and either a value with a chevron or a
   switch.
-- **Addon row** 880×112: logo tile, name, what it serves, version and origin (or
-  an OFFLINE badge), and the switch. Focused, it adds details, move up, move down
-  and remove. In its moving state it is lavender with a drag handle and the hint
-  *Up and down to move · OK to place*.
+- **Addon row** 880×112: logo tile, name, what it serves, version, and the
+  switch. It shows no origin and no reachability (ADR-0044 §1). Focused, it adds
+  details, move up, move down and remove. In its moving state it is lavender with
+  a drag handle and the hint *Up and down to move · OK to place*.
 - **Ranked row**: the position in a lavender disc, the language, and up, down and
   remove.
 - **Panels**: the side panel (936×1032, radius 28) for Streams; the floating panel

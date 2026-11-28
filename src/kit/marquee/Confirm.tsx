@@ -1,4 +1,4 @@
-import { motion } from "motion/react";
+import { motion, useIsPresent } from "motion/react";
 import { useId, type ReactNode } from "react";
 
 import { useReducedMotion } from "../../core/react/useReducedMotion";
@@ -38,7 +38,8 @@ const RISE = 16;
  * Cancel leads in the document and the sheet draws it second: the focus engine
  * lands on a dialog's first control when nothing lies under the origin, and on
  * a destructive question that has to be the safe one. The Level, its focus
- * trap and Back belong to the caller.
+ * trap and Back belong to the caller. On its way out it is inert: the answer
+ * is already given.
  */
 export function Confirm({
   title,
@@ -54,6 +55,7 @@ export function Confirm({
   className,
 }: ConfirmProps) {
   const id = useId();
+  const present = useIsPresent();
   const reduced = useReducedMotion();
   const titleId = `${id}-title`;
   const bodyId = `${id}-body`;
@@ -62,6 +64,7 @@ export function Confirm({
   return (
     <motion.div
       className="mq-c7-confirm-scrim"
+      inert={present ? undefined : true}
       initial={{ opacity: 0 }}
       animate={{ opacity: 1 }}
       exit={{ opacity: 0 }}
