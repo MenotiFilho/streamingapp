@@ -41,14 +41,14 @@ export type Row = {
 /** One catalog an Addon declares, whatever it is. */
 export type DeclaredCatalog = { addon: string; catalog: AddonCatalog };
 
-/** An Addon's catalogs, in the Addon's own order. */
+/** Enabled Addons' catalogs, in the Addons' own order (ADR-0044 §2). */
 export function declaredCatalogs(snapshot: Snapshot | null): DeclaredCatalog[] {
   if (!snapshot) {
     return [];
   }
-  return snapshot.addons.flatMap((addon) =>
-    addon.catalogs.map((catalog) => ({ addon: addon.id, catalog })),
-  );
+  return snapshot.addons
+    .filter((addon) => addon.enabled)
+    .flatMap((addon) => addon.catalogs.map((catalog) => ({ addon: addon.id, catalog })));
 }
 
 /** A row with nothing in it yet. */
@@ -108,10 +108,10 @@ export function catalogKey({ addon, catalog }: DeclaredCatalog): string {
   return keyOf({ addon, type: catalog.type, id: catalog.id });
 }
 
-/** Whether a row can be paged on: its catalog offers `skip`. */
+/** Whether a row can be paged on: its catalog offers `skip` on an enabled Addon. */
 export function pageable(snapshot: Snapshot | null, row: Row): boolean {
   const catalog = snapshot?.addons
-    .filter((addon) => addon.id === row.addon)
+    .filter((addon) => addon.enabled && addon.id === row.addon)
     .flatMap((addon) => addon.catalogs)
     .find((catalog) => catalog.id === row.id && catalog.type === row.type);
 

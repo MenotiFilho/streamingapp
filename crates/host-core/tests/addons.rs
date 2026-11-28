@@ -5,8 +5,9 @@
 use std::sync::Arc;
 
 use host_core::{
-    Action, ActionError, AddonProvider, FetchError, FixtureClock, FixtureFetcher, FixturePlayer,
-    Host, InMemorySecretStore, InMemoryStore, Manifest, Snapshot, Store, ACTION_VERSION,
+    Action, ActionError, AddonProvider, AddonSnapshot, FetchError, FixtureClock, FixtureFetcher,
+    FixturePlayer, Host, InMemorySecretStore, InMemoryStore, Manifest, Snapshot, Store,
+    ACTION_VERSION,
 };
 
 /// Recorded manifests, and the URLs they answer on.
@@ -97,7 +98,7 @@ fn added(host: &mut Host, url: &str) -> Vec<Snapshot> {
     add(host, url).unwrap_or_else(|error| panic!("adding {url} should work: {error}"))
 }
 
-fn addons(snapshot: &Snapshot) -> &[Manifest] {
+fn addons(snapshot: &Snapshot) -> &[AddonSnapshot] {
     &snapshot.addons
 }
 

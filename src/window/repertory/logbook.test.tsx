@@ -45,6 +45,7 @@ const CINEMETA: AddonManifest = {
   ],
   idPrefixes: ["tt"],
   behaviorHints: { configurable: false, configurationRequired: false },
+  enabled: true,
 };
 
 const TORRENTIO: AddonManifest = {

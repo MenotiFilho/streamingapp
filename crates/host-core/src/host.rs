@@ -620,6 +620,13 @@ impl Host {
                     },
                     None => self.whole_read_work(probe, Some(&held))?,
                 };
+                // A fallback past a switched-off Addon reads a Title of its own:
+                // keyed by that read, so the kept copy is not replaced and is
+                // still there when the Addon is back.
+                if matches!(&held.title.key, TitleKey::Addon { addon, .. } if self.state.is_addon_disabled(addon))
+                {
+                    return Some((key_of(&work)?, work, None));
+                }
                 Some((held.title.key.clone(), work, Some(held.title)))
             }
         }
@@ -629,9 +636,12 @@ impl Host {
     /// can answer, TMDB's record where it cannot and the Title is TMDB's.
     fn whole_read_work(&self, probe: &TitleProbe, cached: Option<&CachedTitle>) -> Option<Work> {
         // The Addon that supplied the Title is the one to ask, where it is still
-        // configured: it answers the same Title the client would open.
+        // configured and enabled: it answers the same Title the client would
+        // open. A configured Addon switched off by the owner is not contacted
+        // in the background either (ADR-0044 §2), which leaves TMDB where the
+        // kept copy is keyed by its record and nothing where it is not.
         if let Some(addon) = &probe.addon {
-            if self.state.has_addon(addon) {
+            if self.state.is_addon_enabled(addon) {
                 return Some(Work::Addon {
                     addon: addon.clone(),
                     asked: TitleRef {
@@ -639,6 +649,11 @@ impl Host {
                         id: probe.id.clone(),
                     },
                 });
+            }
+            let keyed_by_tmdb =
+                cached.is_some_and(|held| matches!(held.title.key, TitleKey::Tmdb { .. }));
+            if self.state.is_addon_disabled(addon) && !keyed_by_tmdb {
+                return None;
             }
         }
 
@@ -650,11 +665,14 @@ impl Host {
                         kind,
                     })
                 }
-                TitleKey::Addon { addon, id } => {
+                // A copy read through an Addon since switched off cannot be
+                // read through it again: the fallbacks below are asked instead.
+                TitleKey::Addon { addon, id } if !self.state.is_addon_disabled(&addon) => {
                     return TitleRef::parse(&cached.title.r#type, &id)
                         .ok()
                         .map(|asked| Work::Addon { addon, asked })
                 }
+                TitleKey::Addon { .. } => {}
             }
         }
 
@@ -673,12 +691,13 @@ impl Host {
                 });
         }
 
-        // A Library entry names no Addon: the first configured one that offers
-        // the Title's `meta` is the one that can read it.
+        // A Library entry names no Addon: the first configured, enabled one
+        // that offers the Title's `meta` is the one that can read it.
         let requested = ResourceRequest::new(META, &probe.r#type, &probe.id);
         self.state
             .addons()
             .iter()
+            .filter(|addon| addon.is_enabled())
             .find(|addon| addon.manifest().answers(&requested))
             .and_then(|addon| {
                 TitleRef::parse(&probe.r#type, &probe.id)
@@ -1115,8 +1134,11 @@ impl Host {
             return None;
         }
         // A Discovered Title has no Addon to ask: none of its episodes is
-        // ordered by one (ADR-0020).
-        let addon = self.state.addon(stub.addon()?)?;
+        // ordered by one (ADR-0020). A disabled Addon is not asked either.
+        let addon = self
+            .state
+            .addon(stub.addon()?)
+            .filter(|addon| addon.is_enabled())?;
         let requested = ResourceRequest::new(META, stub.r#type(), stub.id());
         if !addon.manifest().answers(&requested) {
             return None;
@@ -1701,6 +1723,11 @@ impl Host {
             }
             ValidatedAction::SetFeaturedCatalog { addon, catalog } => {
                 let configured = self.addon(&addon)?;
+                if !configured.is_enabled() {
+                    return Err(ActionError::AddonDisabled {
+                        id: configured.id().as_str().to_owned(),
+                    });
+                }
                 // The Catalog is the Addon's own: one the manifest does not
                 // declare is one the Host could never ask for, so it is refused
                 // where it is named rather than left to fail on Home (#74).
@@ -1727,6 +1754,14 @@ impl Host {
                     });
                 }
                 Resolved::Change(Change::RemoveAddon(id))
+            }
+            ValidatedAction::SetAddonEnabled { addon, enabled } => {
+                if !self.state.has_addon(&addon) {
+                    return Err(ActionError::UnknownAddon {
+                        id: addon.as_str().to_owned(),
+                    });
+                }
+                Resolved::Change(Change::SetAddonEnabled { addon, enabled })
             }
             ValidatedAction::SetTmdbKey(key) => {
                 // The credential goes straight to where it lives and is not
@@ -1842,6 +1877,12 @@ impl Host {
             }
             ValidatedAction::PlayUpNext { title } => {
                 let (entry, previous) = self.up_next(&title)?;
+                if let Some(addon) = entry.title.addon() {
+                    self.require_not_disabled(addon)?;
+                }
+                if let Some(stream_addon) = previous.stream_addon.as_ref() {
+                    self.require_not_disabled(stream_addon)?;
+                }
                 let chosen = self.up_next_stream(&entry, &previous)?;
                 Resolved::Change(self.open_stream(Box::new(chosen), Some(entry.title), None)?)
             }
@@ -2549,6 +2590,13 @@ impl Host {
             });
         };
         let now = &playing.now_playing;
+        self.require_not_disabled(&now.addon)?;
+        if let Some(title_addon) = self
+            .playing_title()
+            .and_then(|title| title.addon().cloned())
+        {
+            self.require_not_disabled(&title_addon)?;
+        }
         let refused = |detail: String| step.refusal(detail);
 
         let neighbour = self.neighbour_video(step, &now.video)?;
@@ -2596,7 +2644,7 @@ impl Host {
                 let requested_meta = ResourceRequest::new(META, &from.r#type, &title_id);
                 let view = self.view();
                 let mut neighbour = None;
-                for addon in view.addons() {
+                for addon in view.addons().iter().filter(|addon| addon.is_enabled()) {
                     if !addon.manifest().answers(&requested_meta) {
                         continue;
                     }
@@ -2657,6 +2705,9 @@ impl Host {
             .addon(stream_addon)
             .cloned()
             .ok_or_else(|| format!("the Addon {stream_addon} is no longer configured"))?;
+        if !addon.is_enabled() {
+            return Err(format!("the Addon {stream_addon} is disabled"));
+        }
         let requested = self
             .view()
             .ask_of(&addon, STREAM, video)
@@ -2694,7 +2745,7 @@ impl Host {
         let cards = {
             let titles = self.titles.lock().expect("the Title cache is not poisoned");
             crate::progress::continue_watching(self.state.watch(), titles.cached(), |addon| {
-                self.state.has_addon(addon)
+                self.state.addon_unplayable(addon)
             })
         };
 
@@ -2781,12 +2832,20 @@ impl Host {
         // An entry with no Addon behind it — a Discovered Title — has no
         // configured Addon to check and resumes like any other (ADR-0020).
         if let Some(addon) = entry.title.addon() {
-            if !self.state.has_addon(addon) {
-                return Err(ActionError::Unplayable(Unplayable {
-                    detail: format!(
-                        "the Addon {addon} that supplied this Title is no longer configured"
-                    ),
-                }));
+            match self.state.addon(addon) {
+                Some(configured) if configured.is_enabled() => {}
+                Some(_) => {
+                    return Err(ActionError::AddonDisabled {
+                        id: addon.as_str().to_owned(),
+                    });
+                }
+                None => {
+                    return Err(ActionError::Unplayable(Unplayable {
+                        detail: format!(
+                            "the Addon {addon} that supplied this Title is no longer configured"
+                        ),
+                    }));
+                }
             }
         }
 
@@ -2845,6 +2904,17 @@ impl Host {
             .ok_or_else(|| ActionError::UnknownAddon {
                 id: id.as_str().to_owned(),
             })
+    }
+
+    /// Refuse with [`ActionError::AddonDisabled`] when `id` is configured and
+    /// switched off. A missing Addon is left to the caller's own refusal.
+    fn require_not_disabled(&self, id: &AddonId) -> Result<(), ActionError> {
+        if self.state.is_addon_disabled(id) {
+            return Err(ActionError::AddonDisabled {
+                id: id.as_str().to_owned(),
+            });
+        }
+        Ok(())
     }
 }
 

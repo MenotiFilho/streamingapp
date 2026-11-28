@@ -59,9 +59,19 @@ manifest URL and configured order intact for later re-enabling.
   unplayable with `UnplayableReason::AddonDisabled` (`addon_disabled`), distinct
   from `UnplayableReason::AddonRemoved` (`addon_removed`), so a client can
   distinguish a switched-off Addon from a removed one.
-- **Direct targeting refused:** `open_title`, `browse_catalog`, `resume`, and
-  continuity Actions (`next_episode`, `previous_episode`, `play_up_next`) refuse
-  cleanly when targeting a disabled Addon.
+- **Direct targeting refused:** `open_title`, `browse_catalog`,
+  `set_featured_catalog`, `resume`, and continuity Actions (`next_episode`,
+  `previous_episode`, `play_up_next`) refuse cleanly when targeting a disabled
+  Addon.
+- **A Stream already in hand still opens:** `play_stream` and `switch_stream`
+  are deliberately allowed for a Stream a disabled Addon answered. The client
+  hands the Host the Stream itself, so the Host asks the Addon nothing to open
+  it.
+- **Background reads go elsewhere:** a Title a disabled Addon supplied is still
+  read ahead from TMDB where its kept copy is keyed by a TMDB record, and stays
+  that Addon's Title. A Library Title whose kept copy is keyed by a disabled
+  Addon falls through to the other sources, ending at the first enabled Addon
+  that answers `meta`, and the kept copy is not replaced.
 
 Rejected, with reasons: **reusing `addon_removed` for disabled Addons** (tells
 the owner an Addon was uninstalled when toggling one switch restores the Title);

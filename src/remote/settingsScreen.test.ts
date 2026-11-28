@@ -48,6 +48,7 @@ const ADDON = {
   catalogs: [{ type: "movie", id: "top", name: "Top", extra: [] }],
   idPrefixes: ["tt"],
   behaviorHints: { configurable: false, configurationRequired: false },
+  enabled: true,
 } satisfies AddonManifest;
 
 describe("the Settings register's levels", () => {

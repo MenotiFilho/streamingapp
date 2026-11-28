@@ -409,6 +409,9 @@ export function discoverPlayable(
   kind: DiscoverKind,
 ): boolean {
   return addons.some((addon) => {
+    if (!addon.enabled) {
+      return false;
+    }
     // The Host reads the first resource named `stream`; a second one is not a
     // second chance to be asked.
     const index = addon.resources.findIndex((resource) => resource.name === "stream");

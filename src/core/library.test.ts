@@ -41,10 +41,13 @@ test("how far through a Video is a fraction of the length the Host stated", () =
   expect(progressOf(entry({ duration: 0 }))).toBeNull();
 });
 
-test("an entry whose Addon is gone is not one the Host will play", () => {
+test("an entry whose Addon is gone or disabled is not one the Host will play", () => {
   expect(resumable(entry())).toBe(true);
   expect(
     resumable(entry({ unplayable: { reason: "addon_removed", addon: "community.gone" } })),
+  ).toBe(false);
+  expect(
+    resumable(entry({ unplayable: { reason: "addon_disabled", addon: "community.off" } })),
   ).toBe(false);
 });
 
@@ -78,6 +81,10 @@ test("a card says how much is left, or that it is done, or why it cannot be play
     cardNote(entry({ unplayable: { reason: "addon_removed", addon: "community.gone" } })),
     "the reason a stub is unplayable is what its card has to say",
   ).toBe("Unplayable — the Addon community.gone that supplied this Title is gone.");
+  expect(
+    cardNote(entry({ unplayable: { reason: "addon_disabled", addon: "community.off" } })),
+    "a disabled Addon says disabled, distinct from removed",
+  ).toBe("Unplayable — the Addon community.off that supplied this Title is disabled.");
 });
 
 test("an Up next with no progress says what it is, with no progress bar", () => {
