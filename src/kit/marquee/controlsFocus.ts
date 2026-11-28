@@ -24,6 +24,14 @@ export function showsFocus(state: {
   return state.domFocused && state.modality === "navigation";
 }
 
+/** The `data-focused` of a pill, circle or chip: a disabled one draws no focus. */
+export function forcedFocus(state: {
+  focused?: boolean;
+  disabled?: boolean;
+}): "true" | undefined {
+  return state.focused && !state.disabled ? "true" : undefined;
+}
+
 /** The focus treatment of one control, and the handlers that keep it true. */
 export function useShownFocus<E extends Element>({
   focused,

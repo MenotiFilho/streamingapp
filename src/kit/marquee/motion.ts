@@ -60,22 +60,21 @@ function readDuration(property: string, fallback: number): number {
   }
 }
 
+// Motion reads `visualDuration: 0` as unset and runs its 800ms default.
+function spring(seconds: number): Transition {
+  return seconds > 0
+    ? { type: "spring", visualDuration: seconds, bounce: 0 }
+    : { duration: 0 };
+}
+
 /** Rail expand/collapse, hero mode slide, row scroll, panels and moving Addon rows. */
 export function panel(): Transition {
-  return {
-    type: "spring",
-    visualDuration: readDuration("--mq-motion-panel", PANEL_FALLBACK),
-    bounce: 0,
-  };
+  return spring(readDuration("--mq-motion-panel", PANEL_FALLBACK));
 }
 
 /** Focused card scale and other quick state changes. */
 export function quick(): Transition {
-  return {
-    type: "spring",
-    visualDuration: readDuration("--mq-motion-quick", QUICK_FALLBACK),
-    bounce: 0,
-  };
+  return spring(readDuration("--mq-motion-quick", QUICK_FALLBACK));
 }
 
 /** Opacity and colour fades: the same curve CSS carries, preserved under reduced motion. */

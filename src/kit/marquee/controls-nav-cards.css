@@ -906,6 +906,11 @@ html[data-input="navigation"] .mq-episode-card:focus + .mq-episode-caption,
   height: calc(var(--mq-u) * (880 - 70 * var(--mq-hero-shift, 0)));
 }
 
+.mq-hero-layer {
+  position: absolute;
+  inset: 0;
+}
+
 .mq-hero-backdrop {
   position: absolute;
   inset: 0;
@@ -940,6 +945,8 @@ html[data-input="navigation"] .mq-episode-card:focus + .mq-episode-caption,
   height: 100%;
   background: linear-gradient(to right, var(--mq-canvas), transparent);
   opacity: var(--mq-hero-shift, 0);
+  /* Motion drives the shift; a transition of its own would trail behind it. */
+  transition: none;
 }
 
 .mq-hero-scrim[data-scrim="rotating-bottom"] {

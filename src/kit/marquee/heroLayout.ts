@@ -23,20 +23,24 @@ export function heroShift(mode: HeroMode): 0 | 1 {
 
 /**
  * What cross-fades. The title, facts and logo are replaced on every new title
- * and mode. The backdrop is replaced on a new title and slides between modes;
- * with movement left out it cannot slide, so a new mode replaces it too and the
+ * and mode. The backdrop is replaced on a new title, inside a frame that stays
+ * and slides between modes, even when the title changes with the mode. With
+ * movement left out the frame cannot slide, so a new mode replaces it and the
  * switch is a fade.
  */
 export function heroLayerKeys(
   mode: HeroMode,
   titleKey: string,
   calm: boolean,
-): { art: string; copy: string } {
-  const both = `${mode}:${titleKey}`;
-  return { art: calm ? both : titleKey, copy: both };
+): { frame: string; art: string; copy: string } {
+  return {
+    frame: calm ? mode : "art",
+    art: titleKey,
+    copy: `${mode}:${titleKey}`,
+  };
 }
 
-/** The backdrop fades, and slides on the panel spring where movement is allowed. */
+/** The frame fades, and slides on the panel spring where movement is allowed. */
 export function heroArtTransition(calm: boolean): Transition {
   return {
     opacity: fade(),

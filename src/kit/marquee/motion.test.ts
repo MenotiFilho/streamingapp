@@ -72,8 +72,8 @@ describe("Marquee motion presets", () => {
     document.documentElement.style.setProperty("--mq-motion-quick", "0ms");
     document.documentElement.style.setProperty("--mq-motion-fade", "140ms");
 
-    expect(panel()).toMatchObject({ visualDuration: 0, bounce: 0 });
-    expect(quick()).toMatchObject({ visualDuration: 0, bounce: 0 });
+    expect(panel()).toEqual({ duration: 0 });
+    expect(quick()).toEqual({ duration: 0 });
     expect(fade()).toEqual({ duration: 0.14, ease: FADE_EASE });
   });
 });

@@ -1,6 +1,7 @@
 import type { ComponentPropsWithRef } from "react";
 
 import { defaultIconWeight } from "./controlIcons";
+import { forcedFocus } from "./controlsFocus";
 import { cx } from "./cx";
 import { Icon, type IconName, type IconWeight } from "./icons";
 
@@ -46,7 +47,7 @@ export function IconButton({
       className={cx("mq-icon-button", className)}
       aria-label={label}
       data-focusable
-      data-focused={focused ? "true" : undefined}
+      data-focused={forcedFocus({ focused, disabled: button.disabled })}
       data-kind={kind}
       data-size={size}
     >

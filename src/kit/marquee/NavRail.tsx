@@ -67,6 +67,7 @@ export function NavRail({
               expanded={expanded}
               active={destination.id === active}
               focused={destination.id === focused}
+              data-destination={destination.id}
               onClick={() => onSelect?.(destination.id)}
             />
           </li>

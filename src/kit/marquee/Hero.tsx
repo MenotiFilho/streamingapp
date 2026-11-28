@@ -34,23 +34,17 @@ export type HeroProps = {
   className?: string;
 };
 
-function HeroArt({
-  mode,
-  backdrop,
-  poster,
-  calm,
-}: Pick<HeroProps, "mode" | "backdrop" | "poster"> & { calm: boolean }) {
+/** One title's backdrop. It only fades: the frame around it does the moving. */
+function HeroBackdrop({ backdrop, poster }: Pick<HeroProps, "backdrop" | "poster">) {
   const [art, fail] = useArtChain([backdrop, poster]);
-  const shift = heroShift(mode);
 
   return (
     <motion.div
-      className="mq-hero-art"
-      aria-hidden="true"
-      initial={{ opacity: 0, "--mq-hero-shift": shift }}
-      animate={{ opacity: 1, "--mq-hero-shift": shift }}
+      className="mq-hero-layer"
+      initial={{ opacity: 0 }}
+      animate={{ opacity: 1 }}
       exit={{ opacity: 0 }}
-      transition={heroArtTransition(calm)}
+      transition={fade()}
     >
       {art ? (
         <img
@@ -61,6 +55,36 @@ function HeroArt({
           onError={() => fail(art)}
         />
       ) : null}
+    </motion.div>
+  );
+}
+
+/** Where the backdrops sit. It owns the shift between the two modes. */
+function HeroArt({
+  mode,
+  artKey,
+  backdrop,
+  poster,
+  calm,
+}: Pick<HeroProps, "mode" | "backdrop" | "poster"> & {
+  artKey: string;
+  calm: boolean;
+}) {
+  const shift = heroShift(mode);
+
+  return (
+    <motion.div
+      className="mq-hero-art"
+      aria-hidden="true"
+      // Only a calm switch of mode mounts a new frame, and that one fades in.
+      initial={calm ? { opacity: 0, "--mq-hero-shift": shift } : false}
+      animate={{ opacity: 1, "--mq-hero-shift": shift }}
+      exit={{ opacity: 0 }}
+      transition={heroArtTransition(calm)}
+    >
+      <AnimatePresence initial={false}>
+        <HeroBackdrop key={artKey} backdrop={backdrop} poster={poster} />
+      </AnimatePresence>
       {/* It rides the backdrop's left edge, so the two never part mid-slide. */}
       <span className="mq-hero-scrim" data-scrim="following-left" />
     </motion.div>
@@ -140,7 +164,8 @@ export function Hero({
     >
       <AnimatePresence initial={false}>
         <HeroArt
-          key={keys.art}
+          key={keys.frame}
+          artKey={keys.art}
           mode={mode}
           backdrop={backdrop}
           poster={poster}

@@ -9,7 +9,7 @@ import {
   wideCardBadge,
 } from "./cards";
 import { defaultIconWeight, navIconWeight } from "./controlIcons";
-import { showsFocus } from "./controlsFocus";
+import { forcedFocus, showsFocus } from "./controlsFocus";
 import { heroArtTransition, heroLayerKeys, heroShift, heroShows } from "./heroLayout";
 import { META_GENRE_LIMIT, metaFacts } from "./meta";
 import { fade, panel } from "./motion";
@@ -30,6 +30,12 @@ describe("the focus treatment follows the input modality (ADR-0037)", () => {
   it("always draws the explicit focused prop", () => {
     expect(showsFocus({ focused: true, domFocused: false, modality: "pointer" })).toBe(true);
     expect(showsFocus({ focused: false, domFocused: true, modality: "pointer" })).toBe(false);
+  });
+
+  it("forces no focus treatment onto a disabled control", () => {
+    expect(forcedFocus({ focused: true })).toBe("true");
+    expect(forcedFocus({ focused: true, disabled: true })).toBeUndefined();
+    expect(forcedFocus({ focused: false })).toBeUndefined();
   });
 });
 
@@ -136,15 +142,23 @@ describe("the hero's two modes (§8)", () => {
   it("slides one backdrop between modes and cross-fades the copy", () => {
     const rotating = heroLayerKeys("rotating", "dune", false);
     const following = heroLayerKeys("following", "dune", false);
+    expect(following.frame).toBe(rotating.frame);
     expect(following.art).toBe(rotating.art);
     expect(following.copy).not.toBe(rotating.copy);
     expect(heroLayerKeys("rotating", "mobland", false).art).not.toBe(rotating.art);
     expect(heroArtTransition(false)).toEqual({ opacity: fade(), "--mq-hero-shift": panel() });
   });
 
+  it("keeps the one frame sliding when the mode and the title change together", () => {
+    const from = heroLayerKeys("rotating", "dune", false);
+    const to = heroLayerKeys("following", "mobland", false);
+    expect(to.frame).toBe(from.frame);
+    expect(to.art).not.toBe(from.art);
+  });
+
   it("switches mode as a fade when movement is left out", () => {
-    expect(heroLayerKeys("following", "dune", true).art).not.toBe(
-      heroLayerKeys("rotating", "dune", true).art,
+    expect(heroLayerKeys("following", "dune", true).frame).not.toBe(
+      heroLayerKeys("rotating", "dune", true).frame,
     );
     expect(heroArtTransition(true)).toEqual({
       opacity: fade(),
