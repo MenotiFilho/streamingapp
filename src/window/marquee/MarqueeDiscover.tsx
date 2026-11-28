@@ -16,6 +16,10 @@ import {
 import { explain } from "../../core/errors";
 import { gridPaging } from "../../core/gridPaging";
 import {
+  gridFocusAheadForColumns,
+  posterGridColumnsForViewport,
+} from "../../core/marqueeLayout";
+import {
   DISCOVER_TYPES,
   INITIAL_DISCOVER_FILTERS,
   discoverEmptyCopy,
@@ -422,7 +426,13 @@ function DiscoverGridPort({
   children,
   ...paging
 }: GridEndOptions & { inert: boolean; children: ReactNode }) {
-  const port = useGridEnd(paging);
+  const port = useGridEnd({
+    ...paging,
+    ahead: () =>
+      gridFocusAheadForColumns(
+        posterGridColumnsForViewport(window.innerWidth, window.innerHeight),
+      ),
+  });
 
   return (
     <section

@@ -41,6 +41,11 @@
   margin-top: calc(var(--mq-u) * 32);
 }
 
+.mq-addons-form > .mq-c7-field {
+  flex: 1;
+  min-width: 0;
+}
+
 .mq-addons-install-btn {
   margin-top: calc(var(--mq-u) * 36);
 }
@@ -49,8 +54,7 @@
   display: flex;
   flex-direction: column;
   gap: calc(var(--mq-u) * 20);
-  width: calc(var(--mq-u) * 880);
-  max-width: 100%;
+  width: 100%;
   margin: calc(var(--mq-u) * 36) 0 0;
   padding: 0;
   list-style: none;
@@ -71,8 +75,7 @@
 .mq-addons-empty {
   display: flex;
   justify-content: center;
-  width: calc(var(--mq-u) * 880);
-  max-width: 100%;
+  width: 100%;
   margin-top: calc(var(--mq-u) * 64);
 }
 
@@ -83,8 +86,7 @@
 .mq-facts {
   display: flex;
   flex-direction: column;
-  width: calc(var(--mq-u) * 880);
-  max-width: 100%;
+  width: 100%;
   margin: 0;
   padding: calc(var(--mq-u) * 4) 0;
   border-radius: var(--mq-radius-18);
@@ -150,7 +152,6 @@
 .mq-settings-pane {
   flex: 1;
   min-width: 0;
-  max-width: calc(var(--mq-u) * 880);
 }
 
 .mq-settings-pane-inner {
@@ -296,8 +297,7 @@
   display: flex;
   align-items: flex-end;
   justify-content: center;
-  width: calc(var(--mq-u) * 880);
-  max-width: 100%;
+  width: 100%;
   height: calc(var(--mq-u) * 400);
   overflow: hidden;
   border-radius: var(--mq-radius-20);

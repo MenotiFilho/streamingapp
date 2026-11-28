@@ -1,6 +1,7 @@
 import type { Transition } from "motion/react";
 
 import { fade, panel } from "../../kit/motion";
+import { marqueeUnitPx } from "../../core/marqueeLayout";
 import { SETTINGS_LEVEL_PREFIX } from "../../core/settingsRegister";
 import { DEFAULT_RULES, type Rules } from "../focus";
 import type { ShellLevel } from "../navigation";
@@ -45,12 +46,7 @@ export function isSettingsLeaf(level: Pick<ShellLevel, "id"> | null | undefined)
 export const FOLLOWING_ROWS_TOP_U = 480;
 
 /** Reference-frame unit `--mq-u` in CSS pixels (`tokens.css`). */
-export function marqueeUnitPx(viewportWidth: number, viewportHeight: number): number {
-  if (viewportWidth <= 0 || viewportHeight <= 0) {
-    return 1;
-  }
-  return Math.max(0.5, Math.min(viewportWidth, viewportHeight * (16 / 9)) / 1920);
-}
+export { marqueeUnitPx };
 
 /**
  * Settled height of `.mq-home-rows` in `following` mode, so a `rotating` ->

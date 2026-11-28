@@ -315,6 +315,8 @@
   position: absolute;
   right: var(--mq-margin-player);
   bottom: calc(var(--mq-u) * 224);
+  max-width: calc(100% - var(--mq-margin-player) * 2);
+  max-height: calc(100% - var(--mq-u) * 248);
   pointer-events: auto;
 }
 
@@ -323,7 +325,13 @@
   top: calc(var(--mq-u) * 24);
   right: calc(var(--mq-u) * 24);
   bottom: calc(var(--mq-u) * 24);
+  display: flex;
+  max-width: calc(100% - var(--mq-u) * 48);
   pointer-events: auto;
+}
+
+.mq-player-side-wrap .mq-pp-panel[data-placement="side"] {
+  height: 100%;
 }
 
 .mq-panel-col-region {

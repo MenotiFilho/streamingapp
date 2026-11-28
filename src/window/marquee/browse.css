@@ -50,7 +50,6 @@
 .mq-poster-grid {
   display: grid;
   grid-template-columns: repeat(auto-fill, calc(var(--mq-u) * 208));
-  max-width: calc(var(--mq-u) * 1624);
   column-gap: var(--mq-row-gap);
   row-gap: calc(var(--mq-u) * 40);
   list-style: none;
@@ -80,8 +79,7 @@
 }
 
 .mq-browse-alert {
-  width: calc(var(--mq-u) * 880);
-  max-width: 100%;
+  width: 100%;
   margin: 0;
   padding: var(--mq-space-2) var(--mq-space-3);
   border-radius: var(--mq-radius-16);
@@ -223,8 +221,7 @@
 }
 
 .mq-library-gate-body {
-  width: calc(var(--mq-u) * 880);
-  max-width: 100%;
+  width: 100%;
   margin: 0;
   color: var(--mq-text-muted);
   font-size: calc(var(--mq-u) * 20);
