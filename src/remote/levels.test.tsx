@@ -1,8 +1,12 @@
 import { fireEvent, render, screen, waitFor, within } from "@testing-library/react";
-import { describe, expect, test, vi } from "vitest";
+import { MotionGlobalConfig } from "motion/react";
+import { useEffect } from "react";
+import { afterAll, beforeAll, describe, expect, test, vi } from "vitest";
 
+import { declaredCatalogs } from "../core/browse";
 import { explain, type ActionError } from "../core/errors";
 import type { Level } from "../core/navigation";
+import { useSession } from "../core/react/useSession";
 import { Session } from "../core/session";
 import {
   SETTINGS_CATEGORIES,
@@ -32,9 +36,19 @@ import {
   titleLevelOf,
   type RemotePayload,
 } from "./levels";
+import { gridLevel } from "./grid";
 import { playerSheetLevel } from "./playerSheets";
 import { CARD_NAME, playerLevel } from "./playerScreen";
-import { languageSheetLevel, settingsLevel } from "./settingsScreen";
+import { clearTmdbLevel, preferenceSubLevel, settingsLevel } from "./settingsScreen";
+
+let previousSkipAnimations: boolean | undefined;
+beforeAll(() => {
+  previousSkipAnimations = MotionGlobalConfig.skipAnimations;
+  MotionGlobalConfig.skipAnimations = true;
+});
+afterAll(() => {
+  MotionGlobalConfig.skipAnimations = previousSkipAnimations;
+});
 
 /**
  * The one level B2 pushes (ADR-0035 §1).
@@ -134,8 +148,8 @@ describe("the Remote's Title level", () => {
       );
       expect(link.state().kind).toBe("ready");
       expect(screen.getByRole("button", { name: "Home" })).toHaveAttribute(
-        "aria-pressed",
-        "true",
+        "aria-current",
+        "page",
       );
     } finally {
       view.unmount();
@@ -279,50 +293,66 @@ function gridPages(action: Action): Response {
 }
 
 describe("the Remote's grid level", () => {
-  test("More opens it, the grid reads the next page by itself, and Back keeps the cards", async () => {
+  test("draws its cards, reads the next page by itself, and Back pops it", async () => {
     const host = new FakeHost(GRID_SNAPSHOT, gridPages);
-    const view = render(<RemoteApp link={host} />);
-    try {
-      await screen.findByTestId("card-cinemeta-tt4");
-
-      fireEvent.click(screen.getByRole("button", { name: "More Popular" }));
-
-      const grid = await screen.findByTestId("remote-grid");
-      expect(grid).toHaveAccessibleName("All of Popular");
-      expect(screen.getByTestId("grid-card-cinemeta-tt1")).toBeInTheDocument();
-      expect(
-        within(grid).queryByRole("button", { name: "Read on" }),
-        "the grid has no paging button; it reads on near its end",
-      ).not.toBeInTheDocument();
-      expect(
-        await screen.findByTestId("grid-card-cinemeta-tt5"),
-        "the grid itself paged the row past its first four",
-      ).toBeInTheDocument();
-      expect(host.asked("browse_catalog")).toContainEqual({
-        type: "browse_catalog",
-        addon: "cinemeta",
-        catalog: { type: "movie", id: "top" },
-        extra: [{ name: "skip", value: "4" }],
-      });
-
-      fireEvent.keyDown(window, { key: "Escape" });
-      await waitFor(() =>
-        expect(screen.queryByTestId("remote-grid")).not.toBeInTheDocument(),
+    const readyState = host.state();
+    const door = {
+      snapshot: () => host.snapshot(),
+      dispatch: (action: Action) => host.dispatch(action),
+      onSnapshot: (handler: (snapshot: Snapshot) => void) => host.onSnapshot(handler),
+      onRevision: (handler: (title: Title) => void) => host.onRevision(handler),
+      state: () => readyState,
+      onState: (handler: (state: ReturnType<typeof host.state>) => void) => host.onState(handler),
+      close: () => host.close(),
+    };
+    const pop = vi.fn();
+    function GridHarness() {
+      const { session, state } = useSession(door);
+      useEffect(() => {
+        if (state.snapshot) {
+          session.home.enter();
+          session.home.sync(declaredCatalogs(state.snapshot), null);
+        }
+      }, [session, state.snapshot]);
+      return (
+        <RemoteLevel
+          level={{
+            ...gridLevel({
+              index: "01",
+              title: "Popular",
+              tag: null,
+              addon: "cinemeta",
+              source: { kind: "home", rowKey: "cinemeta/movie/top" },
+            }),
+            id: "level-grid",
+          }}
+          session={session}
+          state={state}
+          push={() => "level-2"}
+          pop={pop}
+        />
       );
-
-      expect(
-        await screen.findByTestId("card-cinemeta-tt5"),
-        "the page read in the grid is in the rail after Back",
-      ).toBeInTheDocument();
-
-      fireEvent.click(screen.getByRole("button", { name: "More Popular" }));
-      expect(
-        await screen.findByTestId("grid-card-cinemeta-tt5"),
-        "the grid draws the row the rail has read",
-      ).toBeInTheDocument();
-    } finally {
-      view.unmount();
     }
+    render(<GridHarness />);
+
+    const grid = await screen.findByTestId("remote-grid");
+    expect(grid).toHaveAccessibleName("All of Popular");
+    expect(screen.getByTestId("grid-card-cinemeta-tt1")).toBeInTheDocument();
+    expect(
+      within(grid).queryByRole("button", { name: "Read on" }),
+    ).not.toBeInTheDocument();
+    expect(
+      await screen.findByTestId("grid-card-cinemeta-tt5"),
+    ).toBeInTheDocument();
+    expect(host.asked("browse_catalog")).toContainEqual({
+      type: "browse_catalog",
+      addon: "cinemeta",
+      catalog: { type: "movie", id: "top" },
+      extra: [{ name: "skip", value: "4" }],
+    });
+
+    fireEvent.click(within(grid).getByRole("button", { name: "Back" }));
+    expect(pop).toHaveBeenCalledOnce();
   });
 });
 
@@ -573,9 +603,10 @@ describe("the Remote's settings level", () => {
 });
 
 describe("which levels are sheets over the screen under them", () => {
-  test("a player plate and a language sheet are; a screen is not", () => {
+  test("a player plate and a confirm dialog are; screens are not", () => {
     expect(isSheetPayload(playerSheetLevel("speed", null).payload)).toBe(true);
-    expect(isSheetPayload(languageSheetLevel("audio").payload)).toBe(true);
+    expect(isSheetPayload(clearTmdbLevel().payload)).toBe(true);
+    expect(isSheetPayload(preferenceSubLevel("audio-languages").payload)).toBe(false);
     expect(isSheetPayload(settingsLevel(SETTINGS_CATEGORIES[1]!).payload)).toBe(false);
     expect(isSheetPayload({ kind: "player", title: null } as RemotePayload)).toBe(false);
   });

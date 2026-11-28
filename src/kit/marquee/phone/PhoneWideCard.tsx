@@ -13,6 +13,9 @@ export type PhoneWideCardProps = {
   progress?: number | null;
   /** Draw the pressed state without a finger on it, for a still of the sheet. */
   pressed?: boolean;
+  /** An unplayable Continue watching entry stays listed and cannot be pressed (ADR-0044 §2). */
+  disabled?: boolean;
+  testId?: string;
   onPress: () => void;
 };
 
@@ -24,6 +27,8 @@ export function PhoneWideCard({
   upNext = false,
   progress,
   pressed = false,
+  disabled = false,
+  testId,
   onPress,
 }: PhoneWideCardProps) {
   return (
@@ -32,7 +37,9 @@ export function PhoneWideCard({
       className="mq-ph mq-ph-wide mq-focus-art"
       data-focusable
       data-pressed={pressed || undefined}
+      data-testid={testId}
       aria-label={upNext ? `${name}, Up next` : name}
+      disabled={disabled}
       onClick={onPress}
     >
       <span className="mq-ph-card-frame mq-art-frame">

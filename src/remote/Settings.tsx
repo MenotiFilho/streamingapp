@@ -1,8 +1,9 @@
-import { useEffect, useState, type FormEvent, type ReactNode } from "react";
+import { useEffect, useState, type FormEvent } from "react";
 
-import { version as appVersion } from "../../package.json";
-import { catalogKey, declaredCatalogs, keyOf } from "../core/browse";
+import { version as packageVersion } from "../../package.json";
+import tmdbLogo from "../assets/tmdb-logo.svg";
 import {
+  AUTOPLAY_SWITCH_LABEL,
   STREAM_BUFFER_DEFAULT_MEGABYTES,
   STREAM_BUFFER_DEFAULT_SECONDS,
   STREAM_BUFFER_MEGABYTES,
@@ -12,425 +13,670 @@ import {
   TORRENT_CACHE_HEAD,
   TORRENT_CACHE_MEGABYTES,
   TORRENT_FETCH_NOTE,
+  UP_NEXT_PLAYBACK_CHOICES,
+  autoplayOn,
   bufferMegabytesPreset,
   bufferSecondsPreset,
   colorSelected,
   formatBufferMegabytes,
   formatBufferSeconds,
-  formatScale,
   formatTorrentCache,
-  scaleAtBound,
-  stepScale,
   torrentCachePreset,
   torrentCacheRequest,
-  upNextRows,
 } from "../core/controls";
 import { explain, type ActionError } from "../core/errors";
+import { down, rows, tick, untick, up, type LanguageKind } from "../core/languageList";
+import {
+  FOLLOW_THE_FILE,
+  FOLLOW_THE_FILE_AUDIO_LINE,
+  FOLLOW_THE_FILE_SUBTITLE_LINE,
+} from "../core/languages";
+import {
+  PREFERENCE_SUB_LEVELS,
+  activeFeaturedKey,
+  clampPreviewScale,
+  featuredCatalogAction,
+  featuredCatalogChoices,
+  formatPairedDetail,
+  preferenceListEntries,
+  type PreferenceSubLevelId,
+} from "../core/marqueeSettings";
 import type { NewLevel } from "../core/navigation";
+import { useLanguageList } from "../core/react/useLanguageList";
+import type { Session, SessionState } from "../core/session";
 import {
   LICENCE,
   NO_CATALOG,
   SETTINGS_CATEGORIES,
-  TMDB_KEY_SAVED,
   TMDB_NOTICE,
   protectionLedger,
   settingsLevelId,
   unknownColorLabel,
   type SettingsCategoryId,
 } from "../core/settingsRegister";
-import type { Session, SessionState } from "../core/session";
 import type { Action } from "../core/wire";
-import tmdbLogo from "../assets/tmdb-logo.svg";
-import { Button } from "../kit/Button";
-import { Chip, ChoiceChip } from "../kit/Chip";
-import { Field } from "../kit/Field";
-import { LanguageField } from "./LanguageField";
-import { useLanguageList } from "../core/react/useLanguageList";
-import type { LanguageKind } from "../core/languageList";
+import { Chip } from "../kit/marquee/Chip";
+import { EmptyState } from "../kit/marquee/EmptyState";
+import { GroupLabel } from "../kit/marquee/GroupLabel";
+import { PairingCode } from "../kit/marquee/PairingCode";
+import { RankedRow } from "../kit/marquee/RankedRow";
+import { SizeStepper } from "../kit/marquee/SizeStepper";
+import { TextField } from "../kit/marquee/TextField";
+import type { IconName } from "../kit/marquee/icons";
+import { PhoneHeader } from "../kit/marquee/phone/PhoneHeader";
+import { PhoneListRow } from "../kit/marquee/phone/PhoneListRow";
+import { PhoneSwitchRow } from "../kit/marquee/phone/PhoneSwitchRow";
+import { PhoneButton, PhoneIconButton } from "../kit/marquee/phone/controls";
 import type { RemotePayload } from "./levels";
 import {
-  ADDRESS_ABSENT,
-  ADDRESS_LABEL,
-  FEATURED_CATALOG_HEAD,
-  FEATURED_NONE,
-  NO_DEVICES,
-  PAIRING_CODE_LABEL,
-  REVOKE,
   SETTINGS_WAITING,
-  STREAM_BUFFER_HEAD,
-  STREAM_BUFFER_MEGABYTES_HEAD,
-  STREAM_BUFFER_SECONDS_HEAD,
   STREMIO_EMAIL_LABEL,
   STREMIO_EMAIL_PLACEHOLDER,
   STREMIO_PASSWORD_LABEL,
   STREMIO_PASSWORD_PLACEHOLDER,
   STREMIO_SIGN_IN,
   STREMIO_SIGN_OUT,
-  SUBTITLE_COLOUR_HEAD,
-  LANGUAGE_FOLLOW_LINES,
-  LANGUAGE_GROUP_HEADS,
-  SUBTITLE_SIZE_HEAD,
   TMDB_CLEAR,
   TMDB_FIELD_LABEL,
   TMDB_FIELD_PLACEHOLDER,
-  TMDB_MARK,
   TMDB_SAVE,
-  UP_NEXT_HEAD,
-  VERSION_TERM,
-  bufferAfter,
-  bufferRequest,
   clearTmdbLevel,
-  colorRequest,
-  featuredRequest,
-  languageSheetLevel,
-  pairedAt,
   revokeLevel,
-  scaleRequest,
   settingsCategoryOf,
   settingsLevel,
   signInRequest,
   signOutLevel,
   tmdbKeyRequest,
-  type StreamBuffer,
 } from "./settingsScreen";
 
 export type SettingsProps = {
-  /** A press on a category pushes its leaf over the register. */
-  push: (level: NewLevel<RemotePayload>) => string;
-};
-
-/**
- * Settings, as a short register (#211, ADR-0035 §1).
- *
- * The four categories are the Host's own, from the core's `settingsRegister`,
- * and choosing one pushes a level rather than replacing the destination, so
- * Back returns to the exact row that opened it. Each leaf sends the same
- * Actions the window's Settings does; nothing here holds a credential.
- */
-export function Settings({ push }: SettingsProps) {
-  return (
-    <section className="remote-settings" data-testid="remote-settings">
-      <ScreenHead title="Settings" />
-
-      <ul className="remote-settings-register" data-testid="settings-categories">
-        {SETTINGS_CATEGORIES.map((category) => (
-          <li key={category.id} className="remote-settings-row">
-            <Button
-              variant="ghost"
-              className="remote-settings-category"
-              onClick={() => push(settingsLevel(category))}
-            >
-              {category.title}
-            </Button>
-          </li>
-        ))}
-      </ul>
-    </section>
-  );
-}
-
-export type SettingsLeafProps = {
-  /** The category the pushed level carries, by its register id. */
-  category: SettingsCategoryId;
-  /** The Session every leaf's Actions go through. */
   session: Session;
-  /** What the Host last published: the ledger, the preferences, the devices. */
   state: SessionState;
-  /** A destructive press pushes the confirmation B5's confirm level draws. */
+  deviceId: string | null;
   push: (level: NewLevel<RemotePayload>) => string;
 };
 
-/**
- * One Settings leaf, drawn over the register.
- *
- * The level says which category it is; the leaf is the screen's own decision,
- * so the four leaves are small siblings of this component rather than a copy
- * table, and the record is what makes a fifth category a type error rather than
- * a leaf that silently draws nothing. Every refusal is the Host's words, kept
- * beside the control that asked.
- */
-export function SettingsLeaf(props: SettingsLeafProps) {
-  const Leaf = LEAVES[props.category];
-  return <Leaf {...props} />;
+function categoryIcon(id: SettingsCategoryId): IconName {
+  switch (id) {
+    case "credentials":
+      return "key";
+    case "preferences":
+      return "sliders-horizontal";
+    case "remote-devices":
+      return "device";
+    case "about":
+      return "info";
+  }
 }
 
-/** The three props every leaf shares; the category is its own. */
-type LeafProps = Omit<SettingsLeafProps, "category"> & {
-  category: SettingsCategoryId;
-};
+export function Settings({ state, push }: SettingsProps) {
+  const snapshot = state.snapshot;
+  const ledger = snapshot ? protectionLedger(snapshot.protection) : null;
+  const pairedCount = snapshot?.devices.length ?? 0;
 
-/** One leaf per register category, in the register's own vocabulary. */
-const LEAVES: Record<SettingsCategoryId, (props: LeafProps) => ReactNode> = {
-  credentials: CredentialsLeaf,
-  preferences: PreferencesLeaf,
-  "remote-devices": RemoteDevicesLeaf,
-  about: AboutLeaf,
-};
+  const valueFor = (id: SettingsCategoryId): string => {
+    switch (id) {
+      case "credentials":
+        return ledger?.backend ?? "";
+      case "preferences":
+        return autoplayOn(snapshot) ? "Autoplay on" : "Autoplay off";
+      case "remote-devices":
+        return `${pairedCount} paired`;
+      case "about":
+        return `v${packageVersion}`;
+    }
+  };
 
-/** A leaf's frame: its name on the screen's one line, and the leaf under it. */
-function LeafFrame({
-  category,
-  children,
-}: {
-  category: SettingsCategoryId;
-  children: ReactNode;
-}) {
-  const held = settingsCategoryOf(category);
   return (
     <section
-      className="remote-settings-leaf"
-      data-testid={settingsLevelId(held)}
+      className="mq-remote-screen"
+      aria-label="Settings"
+      data-testid="remote-settings"
     >
-      <ScreenHead title={held.title} />
-      {children}
+      <header className="mq-remote-large-head">
+        <div className="mq-remote-large-head-titles">
+          <h1 className="mq-remote-large-title">Settings</h1>
+        </div>
+      </header>
+
+      {snapshot === null ? (
+        <p className="mq-remote-waiting" role="status">
+          {SETTINGS_WAITING}
+        </p>
+      ) : (
+        <div className="mq-remote-body">
+          <div className="mq-remote-list-card">
+            {SETTINGS_CATEGORIES.map((category) => (
+              <div key={category.id} data-testid={`settings-category-${category.id}`}>
+                <PhoneListRow
+                  kind="value"
+                  icon={categoryIcon(category.id)}
+                  label={category.title}
+                  value={valueFor(category.id)}
+                  onPress={() => push(settingsLevel(category))}
+                />
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
     </section>
   );
 }
 
-/**
- * Credentials: the protection ledger, the TMDB key, and the Stremio account.
- *
- * The key is pasted once and never echoed — the ledger says whether the Host
- * holds one through `protectionLedger`, and a taken key is reported with
- * `TMDB_KEY_SAVED`. The Stremio form keeps no part of the password after the
- * Host has exchanged it, and both destructive controls are questions first.
- */
-function CredentialsLeaf({ category, session, state, push }: LeafProps) {
-  const snapshot = state.snapshot;
-  const protection = snapshot ? protectionLedger(snapshot.protection) : null;
-  const tmdbHeld = snapshot?.protection.tmdbHeld ?? false;
-  const stremioHeld = snapshot?.protection.stremioHeld ?? false;
+export function SettingsLeaf({
+  category,
+  session,
+  state,
+  deviceId,
+  push,
+  pop,
+}: {
+  category: SettingsCategoryId;
+  session: Session;
+  state: SessionState;
+  deviceId: string | null;
+  push: (level: NewLevel<RemotePayload>) => string;
+  pop: () => void;
+}) {
+  const meta = settingsCategoryOf(category);
 
-  const [keyDraft, setKeyDraft] = useState("");
-  const [keyError, setKeyError] = useState<ActionError | null>(null);
-  const [keySaved, setKeySaved] = useState(false);
-  const [savingKey, setSavingKey] = useState(false);
+  return (
+    <section
+      className="mq-remote-screen"
+      aria-label={meta.title}
+      data-testid={settingsLevelId(meta)}
+    >
+      <PhoneHeader title={meta.title} subtitle="Settings" onBack={pop} />
+
+      {state.snapshot === null ? (
+        <p className="mq-remote-waiting" role="status">
+          {SETTINGS_WAITING}
+        </p>
+      ) : category === "credentials" ? (
+        <CredentialsLeaf session={session} state={state} push={push} />
+      ) : category === "preferences" ? (
+        <PreferencesLeaf session={session} state={state} push={push} />
+      ) : category === "remote-devices" ? (
+        <DevicesLeaf state={state} deviceId={deviceId} push={push} />
+      ) : (
+        <AboutLeaf />
+      )}
+    </section>
+  );
+}
+
+function CredentialsLeaf({
+  session,
+  state,
+  push,
+}: {
+  session: Session;
+  state: SessionState;
+  push: (level: NewLevel<RemotePayload>) => string;
+}) {
+  const snapshot = state.snapshot!;
+  const ledger = protectionLedger(snapshot.protection);
+
+  const [tmdbDraft, setTmdbDraft] = useState("");
+  const [tmdbError, setTmdbError] = useState<ActionError | null>(null);
+  const [tmdbBusy, setTmdbBusy] = useState(false);
 
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
-  const [signError, setSignError] = useState<ActionError | null>(null);
-  const [signingIn, setSigningIn] = useState(false);
+  const [stremioError, setStremioError] = useState<ActionError | null>(null);
+  const [stremioBusy, setStremioBusy] = useState(false);
 
-  const storeKey = async (event: FormEvent<HTMLFormElement>) => {
+  const saveTmdb = async (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault();
-    const action = tmdbKeyRequest(keyDraft);
-    if (!action || savingKey) {
+    const action = tmdbKeyRequest(tmdbDraft);
+    if (!action || tmdbBusy) {
       return;
     }
-    setKeyError(null);
-    setKeySaved(false);
-    setSavingKey(true);
+    setTmdbError(null);
+    setTmdbBusy(true);
     const outcome = await session.ask(action);
-    setSavingKey(false);
+    setTmdbBusy(false);
     if (outcome.error) {
-      // A refused key is something to correct, not retype.
-      setKeyError(outcome.error);
+      setTmdbError(outcome.error);
       return;
     }
-    // The field was the only place the value was ever shown: a taken key is a
-    // fact about the secret store, never a value a Snapshot carries.
-    setKeyDraft("");
-    setKeySaved(true);
+    setTmdbDraft("");
   };
 
   const signIn = async (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault();
     const action = signInRequest(email, password);
-    if (!action || signingIn) {
+    if (!action || stremioBusy) {
       return;
     }
-    setSignError(null);
-    setSigningIn(true);
+    setStremioError(null);
+    setStremioBusy(true);
     const outcome = await session.ask(action);
-    setSigningIn(false);
+    setStremioBusy(false);
     if (outcome.error) {
-      // The Host's own answer, kept beside the fields so a typo can be fixed.
-      setSignError(outcome.error);
+      setStremioError(outcome.error);
       return;
     }
-    // The password was only ever the draft: the Host exchanged it for the
-    // account it holds, and this form keeps nothing of it.
     setEmail("");
     setPassword("");
   };
 
   return (
-    <LeafFrame category={category}>
-      <section className="remote-settings-group">
-        <h2 className="remote-settings-label">Protection</h2>
-        {protection ? (
-          <dl className="remote-facts" data-testid="settings-protection">
-            <div>
-              <dt>Secret store</dt>
-              <dd>
-                <Chip>{protection.backend}</Chip>
-              </dd>
-            </div>
-            <div>
-              <dt>TMDB key</dt>
-              <dd data-testid="protection-tmdb">
-                <Chip tone={tmdbHeld ? "ok" : "neutral"}>{protection.tmdb}</Chip>
-              </dd>
-            </div>
-            <div>
-              <dt>Stremio account</dt>
-              <dd data-testid="protection-stremio">
-                <Chip tone={stremioHeld ? "ok" : "neutral"}>
-                  {protection.stremio}
-                </Chip>
-              </dd>
-            </div>
-          </dl>
-        ) : (
-          <p className="remote-quiet">{SETTINGS_WAITING}</p>
-        )}
-      </section>
+    <div className="mq-remote-body">
+      <GroupLabel>Host ledger</GroupLabel>
+      <div className="mq-remote-facts-card" data-testid="credentials-ledger">
+        <div className="mq-remote-fact-row">
+          <span className="mq-remote-fact-label">Secret store</span>
+          <span className="mq-remote-fact-value">{ledger.backend}</span>
+        </div>
+        <div className="mq-remote-fact-row">
+          <span className="mq-remote-fact-label">TMDB key</span>
+          <span className="mq-remote-fact-value">{ledger.tmdb}</span>
+        </div>
+        <div className="mq-remote-fact-row">
+          <span className="mq-remote-fact-label">Stremio account</span>
+          <span className="mq-remote-fact-value">{ledger.stremio}</span>
+        </div>
+      </div>
 
-      <section className="remote-settings-group">
-        <h2 className="remote-settings-label">TMDB key</h2>
-        <form className="remote-settings-form" onSubmit={storeKey}>
-          <Field
-            id="settings-tmdb-key"
-            label={TMDB_FIELD_LABEL}
-            type="password"
-            placeholder={TMDB_FIELD_PLACEHOLDER}
-            autoComplete="off"
-            value={keyDraft}
-            onChange={setKeyDraft}
-            error={keyError}
-            refusalTestId="settings-tmdb-refusal"
-          />
-          <div className="remote-settings-actions">
-            <Button
-              type="submit"
-              variant="primary"
-              pending={savingKey}
-              disabled={tmdbKeyRequest(keyDraft) === null}
-            >
-              {TMDB_SAVE}
-            </Button>
-            <Button
-              variant="ghost"
-              danger
-              disabled={!tmdbHeld}
+      <GroupLabel>TMDB</GroupLabel>
+      <form className="mq-remote-settings-group" onSubmit={saveTmdb}>
+        <TextField
+          label={TMDB_FIELD_LABEL}
+          placeholder={TMDB_FIELD_PLACEHOLDER}
+          masked
+          value={tmdbDraft}
+          onChange={setTmdbDraft}
+          error={tmdbError ? explain(tmdbError) : null}
+          disabled={tmdbBusy}
+        />
+        <div className="mq-remote-action-row">
+          <PhoneButton type="submit" kind="primary" disabled={tmdbBusy}>
+            {tmdbBusy ? "Saving…" : TMDB_SAVE}
+          </PhoneButton>
+          {snapshot.protection.tmdbHeld ? (
+            <PhoneButton
+              kind="secondary"
+              disabled={tmdbBusy}
               onClick={() => push(clearTmdbLevel())}
             >
               {TMDB_CLEAR}
-            </Button>
-          </div>
-          {keySaved && tmdbHeld ? (
-            <p role="status" className="remote-settings-status">
-              {TMDB_KEY_SAVED}
+            </PhoneButton>
+          ) : null}
+        </div>
+      </form>
+
+      <GroupLabel>Stremio account</GroupLabel>
+      {snapshot.protection.stremioHeld ? (
+        <div className="mq-remote-addon-card">
+          <p className="mq-remote-large-subtitle">
+            Signed in on this Host. Signing out removes the stored token and leaves watch
+            progress untouched.
+          </p>
+          <PhoneButton kind="danger" onClick={() => push(signOutLevel())}>
+            {STREMIO_SIGN_OUT}
+          </PhoneButton>
+        </div>
+      ) : (
+        <form className="mq-remote-settings-group" onSubmit={signIn}>
+          <TextField
+            label={STREMIO_EMAIL_LABEL}
+            type="email"
+            autoComplete="email"
+            placeholder={STREMIO_EMAIL_PLACEHOLDER}
+            value={email}
+            onChange={setEmail}
+            disabled={stremioBusy}
+          />
+          <TextField
+            label={STREMIO_PASSWORD_LABEL}
+            type="password"
+            autoComplete="current-password"
+            placeholder={STREMIO_PASSWORD_PLACEHOLDER}
+            value={password}
+            onChange={setPassword}
+            disabled={stremioBusy}
+          />
+          {stremioError ? (
+            <p role="alert" className="mq-remote-inline-error">
+              {explain(stremioError)}
             </p>
           ) : null}
+          <PhoneButton type="submit" kind="primary" disabled={stremioBusy}>
+            {stremioBusy ? "Signing in…" : STREMIO_SIGN_IN}
+          </PhoneButton>
         </form>
-      </section>
-
-      <section className="remote-settings-group">
-        <h2 className="remote-settings-label">Stremio account</h2>
-        {snapshot === null ? (
-          <p className="remote-quiet">{SETTINGS_WAITING}</p>
-        ) : stremioHeld ? (
-          <Button
-            variant="ghost"
-            danger
-            onClick={() => push(signOutLevel())}
-          >
-            {STREMIO_SIGN_OUT}
-          </Button>
-        ) : (
-          <form className="remote-settings-form" onSubmit={signIn} noValidate>
-            <Field
-              id="settings-stremio-email"
-              label={STREMIO_EMAIL_LABEL}
-              type="email"
-              placeholder={STREMIO_EMAIL_PLACEHOLDER}
-              autoComplete="off"
-              value={email}
-              onChange={setEmail}
-            />
-            <Field
-              id="settings-stremio-password"
-              label={STREMIO_PASSWORD_LABEL}
-              type="password"
-              placeholder={STREMIO_PASSWORD_PLACEHOLDER}
-              autoComplete="off"
-              value={password}
-              onChange={setPassword}
-              error={signError}
-              refusalTestId="settings-stremio-refusal"
-            />
-            <div className="remote-settings-actions">
-              <Button
-                type="submit"
-                variant="primary"
-                pending={signingIn}
-                disabled={signInRequest(email, password) === null}
-              >
-                {STREMIO_SIGN_IN}
-              </Button>
-            </div>
-          </form>
-        )}
-      </section>
-    </LeafFrame>
+      )}
+    </div>
   );
 }
 
-/**
- * Preferences: every control is the Host's own Action and saves on press.
- *
- * The lists are the core's JSON, so the Remote offers the same languages,
- * colours, sizes, buffer pair and Featured catalogs the window does. A value
- * the Host holds that a list does not name keeps an Other chip, so one choice
- * is still shown as chosen; a refusal is drawn beside the group that asked.
- */
-function PreferencesLeaf({ category, session, state, push }: LeafProps) {
-  const snapshot = state.snapshot;
-  const heldColor = snapshot?.preferences.subtitleColor ?? "#FFFFFF";
-  const heldScale = snapshot?.preferences.subtitleScale ?? 1;
-  const published: StreamBuffer = snapshot?.preferences.streamBuffer ?? {
-    seconds: STREAM_BUFFER_DEFAULT_SECONDS,
-    megabytes: STREAM_BUFFER_DEFAULT_MEGABYTES,
+function PreferencesLeaf({
+  session,
+  state,
+  push,
+}: {
+  session: Session;
+  state: SessionState;
+  push: (level: NewLevel<RemotePayload>) => string;
+}) {
+  const snapshot = state.snapshot!;
+  const entries = preferenceListEntries(snapshot);
+  const [autoplayBusy, setAutoplayBusy] = useState(false);
+  const [error, setError] = useState<ActionError | null>(null);
+
+  const toggleAutoplay = async (autoplay: boolean) => {
+    setError(null);
+    setAutoplayBusy(true);
+    const outcome = await session.ask({ type: "set_autoplay", autoplay });
+    setAutoplayBusy(false);
+    if (outcome.error) {
+      setError(outcome.error);
+    }
   };
 
-  /**
-   * The pair the chips draw before the Host has answered a press, so two quick
-   * presses compose from the first rather than both from the same Snapshot.
-   */
-  const heldTorrentCache =
-    snapshot?.preferences.torrentCache.megabytes ?? TORRENT_CACHE_DEFAULT_MEGABYTES;
+  return (
+    <div className="mq-remote-body" data-testid="preferences-list">
+      <div className="mq-remote-list-card">
+        {entries.map((entry) =>
+          entry.kind === "switch" ? (
+            <div key={entry.id} data-testid={`pref-row-${entry.id}`}>
+              <PhoneListRow
+                kind="switch"
+                icon={entry.icon}
+                label={entry.label}
+                checked={entry.checked}
+                disabled={autoplayBusy}
+                onChange={(next) => void toggleAutoplay(next)}
+              />
+            </div>
+          ) : (
+            <div key={entry.id} data-testid={`pref-row-${entry.id}`}>
+              <PhoneListRow
+                kind="value"
+                icon={entry.icon}
+                label={entry.label}
+                value={entry.value}
+                onPress={() =>
+                  push({
+                    name: PREFERENCE_SUB_LEVELS[entry.subLevel].title,
+                    kind: "overlay",
+                    payload: { kind: "settings-pref", subLevel: entry.subLevel },
+                  })
+                }
+              />
+            </div>
+          ),
+        )}
+      </div>
 
-  const [bufferDraft, setBufferDraft] = useState<StreamBuffer>(published);
-  useEffect(() => {
-    setBufferDraft({
-      seconds: published.seconds,
-      megabytes: published.megabytes,
-    });
-  }, [published.seconds, published.megabytes]);
+      {error ? (
+        <p role="alert" className="mq-remote-inline-error">
+          {explain(error)}
+        </p>
+      ) : null}
+    </div>
+  );
+}
 
-  const [colorError, setColorError] = useState<ActionError | null>(null);
-  const [scaleError, setScaleError] = useState<ActionError | null>(null);
-  const [bufferError, setBufferError] = useState<ActionError | null>(null);
-  const [torrentCacheError, setTorrentCacheError] = useState<ActionError | null>(null);
-  const [upNextError, setUpNextError] = useState<ActionError | null>(null);
-  const [featuredError, setFeaturedError] = useState<ActionError | null>(null);
+function DevicesLeaf({
+  state,
+  deviceId,
+  push,
+}: {
+  state: SessionState;
+  deviceId: string | null;
+  push: (level: NewLevel<RemotePayload>) => string;
+}) {
+  const snapshot = state.snapshot!;
+  const devices = snapshot.devices;
 
+  return (
+    <div className="mq-remote-body">
+      <GroupLabel>Pair another device</GroupLabel>
+      <PairingCode code={snapshot.pairingCode} address={snapshot.address} />
+
+      <GroupLabel>Paired devices</GroupLabel>
+      {devices.length === 0 ? (
+        <EmptyState
+          icon="device"
+          title="No paired devices"
+          body="Enter the code above on a phone or tablet on the same network."
+        />
+      ) : (
+        <div className="mq-remote-list-card" data-testid="paired-devices-list">
+          {devices.map((summary) => {
+            const isCurrent = deviceId !== null && summary.id === deviceId;
+            const detail = formatPairedDetail(summary.pairedAt);
+            return (
+              <div
+                key={summary.id}
+                className="mq-remote-device-row"
+                data-testid={`device-${summary.id}`}
+              >
+                <div className="mq-remote-device-info">
+                  <span className="mq-remote-device-name">{summary.name}</span>
+                  <span
+                    className="mq-remote-device-detail"
+                    data-current={isCurrent ? "true" : undefined}
+                  >
+                    {isCurrent ? `This device · ${detail}` : detail}
+                  </span>
+                </div>
+                <PhoneIconButton
+                  icon="trash"
+                  label={`Revoke ${summary.name}`}
+                  kind="ghost"
+                  onClick={() => push(revokeLevel(summary))}
+                />
+              </div>
+            );
+          })}
+        </div>
+      )}
+    </div>
+  );
+}
+
+function AboutLeaf() {
+  return (
+    <div className="mq-remote-body" data-testid="about-leaf">
+      <div className="mq-remote-about-tmdb">
+        <img
+          src={tmdbLogo}
+          alt="The Movie Database (TMDB)"
+          className="mq-remote-tmdb-logo"
+        />
+        <p className="mq-remote-about-copy">{TMDB_NOTICE}</p>
+      </div>
+
+      <div className="mq-remote-facts-card">
+        <div className="mq-remote-fact-row" data-testid="about-version">
+          <span className="mq-remote-fact-label">Version</span>
+          <span className="mq-remote-fact-value">{packageVersion}</span>
+        </div>
+      </div>
+
+      <GroupLabel>Licence</GroupLabel>
+      <p className="mq-remote-about-copy">{LICENCE}</p>
+    </div>
+  );
+}
+
+export function PreferenceSubLevel({
+  subLevel,
+  session,
+  state,
+  pop,
+}: {
+  subLevel: PreferenceSubLevelId;
+  session: Session;
+  state: SessionState;
+  pop: () => void;
+}) {
+  switch (subLevel) {
+    case "subtitle-languages":
+      return (
+        <LanguagesSubLevel
+          kind="subtitle"
+          session={session}
+          state={state}
+          pop={pop}
+        />
+      );
+    case "audio-languages":
+      return (
+        <LanguagesSubLevel
+          kind="audio"
+          session={session}
+          state={state}
+          pop={pop}
+        />
+      );
+    case "subtitle-appearance":
+      return <SubtitleAppearanceSubLevel session={session} state={state} pop={pop} />;
+    case "stream-buffer":
+      return <StreamBufferSubLevel session={session} state={state} pop={pop} />;
+    case "up-next":
+      return <UpNextSubLevel session={session} state={state} pop={pop} />;
+  }
+}
+
+function LanguagesSubLevel({
+  kind,
+  session,
+  state,
+  pop,
+}: {
+  kind: LanguageKind;
+  session: Session;
+  state: SessionState;
+  pop: () => void;
+}) {
+  const [choosing, setChoosing] = useState(false);
+  const meta =
+    PREFERENCE_SUB_LEVELS[
+      kind === "subtitle" ? "subtitle-languages" : "audio-languages"
+    ];
+  const { list, error, change, current } = useLanguageList(
+    kind,
+    state.snapshot,
+    (action) => session.ask(action),
+  );
+  const view = rows(list);
+  const followDetail =
+    kind === "subtitle" ? FOLLOW_THE_FILE_SUBTITLE_LINE : FOLLOW_THE_FILE_AUDIO_LINE;
+
+  if (choosing) {
+    return (
+      <section
+        className="mq-remote-screen"
+        aria-label="Choose language"
+        data-testid={`language-picker-${kind}`}
+      >
+        <PhoneHeader
+          title="Choose language"
+          subtitle={meta.title}
+          onBack={() => setChoosing(false)}
+        />
+        <div className="mq-remote-body">
+          <div className="mq-remote-list-card">
+            {view.rest.map((row) => (
+              <PhoneListRow
+                key={row.tag}
+                kind="action"
+                icon="plus"
+                label={row.name}
+                disabled={row.disabled}
+                onPress={() => {
+                  void change(tick(current(), row.tag));
+                  setChoosing(false);
+                }}
+              />
+            ))}
+          </div>
+        </div>
+      </section>
+    );
+  }
+
+  return (
+    <section
+      className="mq-remote-screen"
+      aria-label={meta.title}
+      data-testid={`settings-sublevel-${kind}-languages`}
+    >
+      <PhoneHeader title={meta.title} subtitle={meta.crumb} onBack={pop} />
+
+      <div className="mq-remote-body">
+        <p className="mq-remote-large-subtitle">{meta.intro}</p>
+
+        {view.chosen.length === 0 ? (
+          <div className="mq-remote-follow-card" data-testid={`language-follow-${kind}`}>
+            <p className="mq-remote-follow-title">{FOLLOW_THE_FILE}</p>
+            <p className="mq-remote-follow-body">{followDetail}</p>
+          </div>
+        ) : (
+          <div className="mq-remote-settings-group" data-testid={`language-chosen-${kind}`}>
+            <GroupLabel>Priority order</GroupLabel>
+            <div className="mq-remote-list-card">
+              {view.chosen.map((row) => (
+                <RankedRow
+                  key={row.tag}
+                  position={row.index + 1}
+                  count={view.chosen.length}
+                  label={row.name}
+                  onMoveUp={() => void change(up(current(), row.index))}
+                  onMoveDown={() => void change(down(current(), row.index))}
+                  onRemove={() => void change(untick(current(), row.tag))}
+                />
+              ))}
+            </div>
+          </div>
+        )}
+
+        {view.note ? (
+          <p className="mq-remote-large-subtitle" data-testid="language-note">
+            {view.note}
+          </p>
+        ) : null}
+
+        <PhoneListRow
+          kind="action"
+          icon="plus"
+          label="Add language"
+          disabled={view.chosen.length >= 3 || view.rest.every((item) => item.disabled)}
+          onPress={() => setChoosing(true)}
+        />
+
+        {error ? (
+          <p role="alert" className="mq-remote-inline-error">
+            {explain(error)}
+          </p>
+        ) : null}
+      </div>
+    </section>
+  );
+}
+
+function SubtitleAppearanceSubLevel({
+  session,
+  state,
+  pop,
+}: {
+  session: Session;
+  state: SessionState;
+  pop: () => void;
+}) {
+  const meta = PREFERENCE_SUB_LEVELS["subtitle-appearance"];
+  const heldColor = state.snapshot?.preferences.subtitleColor ?? "#FFFFFF";
+  const heldScale = state.snapshot?.preferences.subtitleScale ?? 1;
+  const [error, setError] = useState<ActionError | null>(null);
   const otherColor = unknownColorLabel(heldColor);
-  const catalogs = declaredCatalogs(snapshot);
-  const featured = snapshot?.featuredCatalog ?? null;
-  const featuredKey = featured
-    ? keyOf({
-        addon: featured.addon,
-        type: featured.catalog.type,
-        id: featured.catalog.id,
-      })
-    : null;
+  const previewScale = clampPreviewScale(heldScale);
 
-  const take = async (
-    action: Action,
-    setError: (error: ActionError | null) => void,
-  ) => {
+  const pick = async (action: Action) => {
     setError(null);
     const outcome = await session.ask(action);
     if (outcome.error) {
@@ -438,386 +684,262 @@ function PreferencesLeaf({ category, session, state, push }: LeafProps) {
     }
   };
 
-  /**
-   * One press moves one of the pair and keeps the other where the client last
-   * put it; a refusal puts the draft back to the published pair.
-   */
-  const pickBuffer = async (change: Partial<StreamBuffer>) => {
-    const next = bufferAfter(bufferDraft, change);
-    setBufferError(null);
-    setBufferDraft(next);
-    const outcome = await session.ask(bufferRequest(next));
-    if (outcome.error) {
-      setBufferError(outcome.error);
-      setBufferDraft(published);
-    }
-  };
-
   return (
-    <LeafFrame category={category}>
-      <LanguageGroup kind="subtitle" session={session} state={state} push={push} />
-      <LanguageGroup kind="audio" session={session} state={state} push={push} />
+    <section
+      className="mq-remote-screen"
+      aria-label={meta.title}
+      data-testid="settings-sublevel-subtitle-appearance"
+    >
+      <PhoneHeader title={meta.title} subtitle={meta.crumb} onBack={pop} />
 
-      <section className="remote-settings-group">
-        <h2 className="remote-settings-label">{SUBTITLE_COLOUR_HEAD}</h2>
-        <div className="remote-settings-chips">
+      <div className="mq-remote-body">
+        <div className="mq-remote-preview-frame" aria-hidden="true">
+          <p
+            className="mq-remote-preview-sample"
+            style={{
+              color: heldColor,
+              fontSize: `${Math.round(16 * previewScale)}px`,
+            }}
+          >
+            I always thought the sky was wider than this.
+          </p>
+        </div>
+
+        <GroupLabel>Colour</GroupLabel>
+        <div className="mq-remote-sub-chips" data-testid="subtitle-color-chips">
           {SUBTITLE_COLORS.map((choice) => (
-            <ChoiceChip
+            <Chip
               key={choice.color}
-              pressed={colorSelected(heldColor, choice.color)}
-              onClick={() => void take(colorRequest(choice.color), setColorError)}
+              selected={colorSelected(heldColor, choice.color)}
+              onClick={() => void pick({ type: "set_subtitle_color", color: choice.color })}
             >
               {choice.label}
-            </ChoiceChip>
+            </Chip>
           ))}
-          {otherColor ? (
-            <ChoiceChip
-              pressed
-              onClick={() => void take(colorRequest(heldColor), setColorError)}
-            >
-              {otherColor}
-            </ChoiceChip>
-          ) : null}
-        </div>
-        <Refusal error={colorError} />
-      </section>
-
-      <section className="remote-settings-group">
-        <h2 className="remote-settings-label">{SUBTITLE_SIZE_HEAD}</h2>
-        <div className="remote-settings-chips">
-          <Button
-            variant="ghost"
-            aria-label="Smaller subtitles"
-            disabled={scaleAtBound(heldScale, -1)}
-            onClick={() =>
-              void take(scaleRequest(stepScale(heldScale, -1)), setScaleError)
-            }
-          >
-            −
-          </Button>
-          <span
-            className="remote-quiet"
-            data-testid="settings-subtitle-scale"
-            aria-label={`Subtitle size ${formatScale(heldScale)}`}
-          >
-            {formatScale(heldScale)}
-          </span>
-          <Button
-            variant="ghost"
-            aria-label="Larger subtitles"
-            disabled={scaleAtBound(heldScale, 1)}
-            onClick={() =>
-              void take(scaleRequest(stepScale(heldScale, 1)), setScaleError)
-            }
-          >
-            +
-          </Button>
-        </div>
-        <Refusal error={scaleError} />
-      </section>
-
-      <section className="remote-settings-group">
-        <h2 className="remote-settings-label">{STREAM_BUFFER_HEAD}</h2>
-        <p className="remote-settings-sub">{STREAM_BUFFER_SECONDS_HEAD}</p>
-        <div className="remote-settings-chips">
-          {STREAM_BUFFER_SECONDS.map((choice) => (
-            <ChoiceChip
-              key={choice.seconds}
-              pressed={bufferDraft.seconds === choice.seconds}
-              onClick={() => void pickBuffer({ seconds: choice.seconds })}
-            >
-              {choice.label}
-            </ChoiceChip>
-          ))}
-          {!bufferSecondsPreset(bufferDraft.seconds) ? (
-            <ChoiceChip
-              pressed
-              onClick={() => void pickBuffer({ seconds: bufferDraft.seconds })}
-            >
-              {formatBufferSeconds(bufferDraft.seconds)}
-            </ChoiceChip>
-          ) : null}
+          {otherColor ? <Chip selected>{otherColor}</Chip> : null}
         </div>
 
-        <p className="remote-settings-sub">{STREAM_BUFFER_MEGABYTES_HEAD}</p>
-        <div className="remote-settings-chips">
-          {STREAM_BUFFER_MEGABYTES.map((choice) => (
-            <ChoiceChip
-              key={choice.megabytes}
-              pressed={bufferDraft.megabytes === choice.megabytes}
-              onClick={() => void pickBuffer({ megabytes: choice.megabytes })}
-            >
-              {choice.label}
-            </ChoiceChip>
-          ))}
-          {!bufferMegabytesPreset(bufferDraft.megabytes) ? (
-            <ChoiceChip
-              pressed
-              onClick={() => void pickBuffer({ megabytes: bufferDraft.megabytes })}
-            >
-              {formatBufferMegabytes(bufferDraft.megabytes)}
-            </ChoiceChip>
-          ) : null}
+        <GroupLabel>Size</GroupLabel>
+        <div data-testid="subtitle-size-stepper">
+          <SizeStepper
+            scale={heldScale}
+            onChange={(scale) => void pick({ type: "set_subtitle_scale", scale })}
+          />
         </div>
-        <p className="remote-quiet" data-testid="stream-buffer-torrents">
-          {TORRENT_FETCH_NOTE}
-        </p>
-        <Refusal error={bufferError} />
-      </section>
+        <p className="mq-remote-large-subtitle">From 25% to 300%, in steps of 5%.</p>
 
-      <section className="remote-settings-group">
-        <h2 className="remote-settings-label">{TORRENT_CACHE_HEAD}</h2>
-        <div className="remote-settings-chips">
-          {TORRENT_CACHE_MEGABYTES.map((choice) => (
-            <ChoiceChip
-              key={choice.megabytes}
-              pressed={heldTorrentCache === choice.megabytes}
-              onClick={() =>
-                void take(torrentCacheRequest(choice.megabytes), setTorrentCacheError)
-              }
-            >
-              {choice.label}
-            </ChoiceChip>
-          ))}
-          {!torrentCachePreset(heldTorrentCache) ? (
-            <ChoiceChip
-              pressed
-              onClick={() =>
-                void take(torrentCacheRequest(heldTorrentCache), setTorrentCacheError)
-              }
-            >
-              {formatTorrentCache(heldTorrentCache)}
-            </ChoiceChip>
-          ) : null}
-        </div>
-        <Refusal error={torrentCacheError} />
-      </section>
-
-      <section className="remote-settings-group">
-        <h2 className="remote-settings-label">{UP_NEXT_HEAD}</h2>
-        {upNextRows(snapshot).map((row) => (
-          <div key={row.id}>
-            <p className="remote-settings-sub">{row.label}</p>
-            <div className="remote-settings-chips">
-              {row.choices.map((choice) => (
-                <ChoiceChip
-                  key={choice.id}
-                  pressed={choice.pressed}
-                  onClick={() => void take(choice.action, setUpNextError)}
-                >
-                  {choice.label}
-                </ChoiceChip>
-              ))}
-            </div>
-          </div>
-        ))}
-        <Refusal error={upNextError} />
-      </section>
-
-      <section className="remote-settings-group">
-        <h2 className="remote-settings-label">{FEATURED_CATALOG_HEAD}</h2>
-        {snapshot === null ? (
-          <p className="remote-quiet">{SETTINGS_WAITING}</p>
-        ) : catalogs.length === 0 ? (
-          <p className="remote-quiet">{NO_CATALOG}</p>
+        {error ? (
+          <p role="alert" className="mq-remote-inline-error">
+            {explain(error)}
+          </p>
         ) : null}
-        <div className="remote-settings-chips">
-          <ChoiceChip
-            pressed={featured === null}
-            onClick={() => void take(featuredRequest(null), setFeaturedError)}
-          >
-            {FEATURED_NONE}
-          </ChoiceChip>
-          {catalogs.map((choice) => {
-            const key = catalogKey(choice);
-            const addon =
-              snapshot?.addons.find((held) => held.id === choice.addon)?.name ??
-              choice.addon;
-            return (
-              <ChoiceChip
-                key={key}
-                pressed={key === featuredKey}
-                onClick={() => void take(featuredRequest(choice), setFeaturedError)}
-              >
-                {`${choice.catalog.name} · ${addon}`}
-              </ChoiceChip>
-            );
-          })}
-        </div>
-        <Refusal error={featuredError} />
-      </section>
-    </LeafFrame>
-  );
-}
-
-/**
- * One language list in Preferences (#330): its field of ranked chips, what an
- * empty list means, and a refusal in the Host's words. The ▾ pushes the sheet
- * as a level, so the phone's Back puts it away (ADR-0034).
- */
-function LanguageGroup({
-  kind,
-  session,
-  state,
-  push,
-}: {
-  kind: LanguageKind;
-  session: Session;
-  state: SessionState;
-  push: (level: NewLevel<RemotePayload>) => string;
-}) {
-  const { list, error, change } = useLanguageList(kind, state.snapshot, session.ask);
-  return (
-    <section className="remote-settings-group">
-      <h2 className="remote-settings-label">{LANGUAGE_GROUP_HEADS[kind]}</h2>
-      <LanguageField
-        kind={kind}
-        list={list}
-        onChange={(next) => void change(next)}
-        onOpen={() => push(languageSheetLevel(kind))}
-      />
-      {list.length === 0 ? (
-        <p className="remote-quiet" data-testid={`language-follow-line-${kind}`}>
-          {LANGUAGE_FOLLOW_LINES[kind]}
-        </p>
-      ) : null}
-      <Refusal error={error} />
+      </div>
     </section>
   );
 }
 
-/**
- * Remote devices: the address and the pairing code a person reads out, the
- * Host's devices in the order they paired, and a Revoke behind a question.
- *
- * This is the screen a second device is paired from, so the code is drawn at
- * hand scale — big mono — rather than as a bookkeeping line.
- */
-function RemoteDevicesLeaf({ category, state, push }: LeafProps) {
-  const snapshot = state.snapshot;
-  const devices = snapshot?.devices ?? [];
+function StreamBufferSubLevel({
+  session,
+  state,
+  pop,
+}: {
+  session: Session;
+  state: SessionState;
+  pop: () => void;
+}) {
+  const meta = PREFERENCE_SUB_LEVELS["stream-buffer"];
+  const publishedBuffer = state.snapshot?.preferences.streamBuffer ?? {
+    seconds: STREAM_BUFFER_DEFAULT_SECONDS,
+    megabytes: STREAM_BUFFER_DEFAULT_MEGABYTES,
+  };
+  const [bufferDraft, setBufferDraft] = useState(publishedBuffer);
+
+  useEffect(() => {
+    setBufferDraft(publishedBuffer);
+  }, [publishedBuffer.seconds, publishedBuffer.megabytes]);
+
+  const [bufferError, setBufferError] = useState<ActionError | null>(null);
+  const [torrentError, setTorrentError] = useState<ActionError | null>(null);
+  const heldTorrentCache =
+    state.snapshot?.preferences.torrentCache.megabytes ?? TORRENT_CACHE_DEFAULT_MEGABYTES;
+
+  const pickBuffer = async (seconds: number, megabytes: number) => {
+    setBufferError(null);
+    const next = { seconds, megabytes };
+    setBufferDraft(next);
+    const outcome = await session.ask({ type: "set_stream_buffer", ...next });
+    if (outcome.error) {
+      setBufferError(outcome.error);
+      setBufferDraft(publishedBuffer);
+    }
+  };
+
+  const pickTorrentCache = async (megabytes: number) => {
+    setTorrentError(null);
+    const outcome = await session.ask(torrentCacheRequest(megabytes));
+    if (outcome.error) {
+      setTorrentError(outcome.error);
+    }
+  };
 
   return (
-    <LeafFrame category={category}>
-      <section className="remote-settings-group">
-        <h2 className="remote-settings-label">Pairing</h2>
-        {snapshot ? (
-          <div className="remote-pairing" data-testid="settings-pairing">
-            <div className="remote-pairing-block">
-              <p className="remote-settings-label">{ADDRESS_LABEL}</p>
-              <p className="remote-pairing-value" data-testid="settings-address">
-                {snapshot.address ?? ADDRESS_ABSENT}
-              </p>
-            </div>
-            <div className="remote-pairing-block">
-              <p className="remote-settings-label">{PAIRING_CODE_LABEL}</p>
-              <p className="remote-pairing-code" data-testid="settings-pairing-code">
-                {snapshot.pairingCode}
-              </p>
-            </div>
-          </div>
-        ) : (
-          <p className="remote-quiet">{SETTINGS_WAITING}</p>
-        )}
-      </section>
+    <section
+      className="mq-remote-screen"
+      aria-label={meta.title}
+      data-testid="settings-sublevel-stream-buffer"
+    >
+      <PhoneHeader title={meta.title} subtitle={meta.crumb} onBack={pop} />
 
-      <section className="remote-settings-group">
-        <h2 className="remote-settings-label">Paired devices</h2>
-        {snapshot === null ? (
-          <p className="remote-quiet">{SETTINGS_WAITING}</p>
-        ) : devices.length === 0 ? (
-          <p className="remote-quiet" data-testid="settings-no-devices">
-            {NO_DEVICES}
-          </p>
-        ) : (
-          <ol className="remote-settings-devices" data-testid="settings-devices">
-            {devices.map((device) => (
-              <li
-                key={device.id}
-                className="remote-settings-device"
-                data-testid={`settings-device-${device.id}`}
-                data-device-id={device.id}
-              >
-                <span className="remote-settings-device-body">
-                  <span className="remote-settings-device-name">{device.name}</span>
-                  <span className="remote-settings-device-date">
-                    paired{" "}
-                    <time dateTime={new Date(device.pairedAt).toISOString()}>
-                      {pairedAt(device.pairedAt)}
-                    </time>
-                  </span>
-                </span>
-                <Button
-                  variant="ghost"
-                  danger
-                  aria-label={`${REVOKE} ${device.name}`}
-                  onClick={() => push(revokeLevel(device))}
-                >
-                  {REVOKE}
-                </Button>
-              </li>
-            ))}
-          </ol>
-        )}
-      </section>
-    </LeafFrame>
-  );
-}
+      <div className="mq-remote-body">
+        <p className="mq-remote-large-subtitle">{meta.intro}</p>
 
-/**
- * About/Credits: the bundle's version, the TMDB mark and its required notice,
- * and the licence.
- *
- * The version is read from `package.json` through the build, so it is one
- * number in one place; the mark is the imported SVG, so no asset is fetched or
- * spliced at serve time.
- */
-function AboutLeaf({ category }: LeafProps) {
-  return (
-    <LeafFrame category={category}>
-      <section className="remote-settings-group">
-        <h2 className="remote-settings-label">TMDB</h2>
-        <div className="remote-credit" data-testid="settings-tmdb-credit">
-          <img className="remote-credit-logo" src={tmdbLogo} alt={TMDB_MARK} />
-          <p className="remote-credit-notice">{TMDB_NOTICE}</p>
+        <GroupLabel>Look-ahead</GroupLabel>
+        <div className="mq-remote-sub-chips" data-testid="buffer-seconds-chips">
+          {STREAM_BUFFER_SECONDS.map((choice) => (
+            <Chip
+              key={choice.seconds}
+              selected={bufferDraft.seconds === choice.seconds}
+              onClick={() => void pickBuffer(choice.seconds, bufferDraft.megabytes)}
+            >
+              {choice.label}
+            </Chip>
+          ))}
+          {!bufferSecondsPreset(bufferDraft.seconds) ? (
+            <Chip selected>{formatBufferSeconds(bufferDraft.seconds)}</Chip>
+          ) : null}
         </div>
-      </section>
 
-      <section className="remote-settings-group">
-        <h2 className="remote-settings-label">Version</h2>
-        <dl className="remote-facts">
-          <div>
-            <dt>{VERSION_TERM}</dt>
-            <dd data-testid="settings-version">{appVersion}</dd>
-          </div>
-        </dl>
-      </section>
+        <GroupLabel>Memory ceiling</GroupLabel>
+        <div className="mq-remote-sub-chips" data-testid="buffer-megabytes-chips">
+          {STREAM_BUFFER_MEGABYTES.map((choice) => (
+            <Chip
+              key={choice.megabytes}
+              selected={bufferDraft.megabytes === choice.megabytes}
+              onClick={() => void pickBuffer(bufferDraft.seconds, choice.megabytes)}
+            >
+              {choice.label}
+            </Chip>
+          ))}
+          {!bufferMegabytesPreset(bufferDraft.megabytes) ? (
+            <Chip selected>{formatBufferMegabytes(bufferDraft.megabytes)}</Chip>
+          ) : null}
+        </div>
 
-      <section className="remote-settings-group">
-        <h2 className="remote-settings-label">Licence</h2>
-        <p className="remote-licence" data-testid="settings-licence">
-          {LICENCE}
-        </p>
-      </section>
-    </LeafFrame>
+        {bufferError ? (
+          <p role="alert" className="mq-remote-inline-error">
+            {explain(bufferError)}
+          </p>
+        ) : null}
+
+        <GroupLabel>{TORRENT_CACHE_HEAD}</GroupLabel>
+        <div className="mq-remote-sub-chips" data-testid="torrent-cache-chips">
+          {TORRENT_CACHE_MEGABYTES.map((choice) => (
+            <Chip
+              key={choice.megabytes}
+              selected={heldTorrentCache === choice.megabytes}
+              onClick={() => void pickTorrentCache(choice.megabytes)}
+            >
+              {choice.label}
+            </Chip>
+          ))}
+          {!torrentCachePreset(heldTorrentCache) ? (
+            <Chip selected>{formatTorrentCache(heldTorrentCache)}</Chip>
+          ) : null}
+        </div>
+        <p className="mq-remote-large-subtitle">{TORRENT_FETCH_NOTE}</p>
+
+        {torrentError ? (
+          <p role="alert" className="mq-remote-inline-error">
+            {explain(torrentError)}
+          </p>
+        ) : null}
+      </div>
+    </section>
   );
 }
 
-/** A screen's one line: its name, then the hairline to the edge. */
-function ScreenHead({ title }: { title: string }) {
+function UpNextSubLevel({
+  session,
+  state,
+  pop,
+}: {
+  session: Session;
+  state: SessionState;
+  pop: () => void;
+}) {
+  const snapshot = state.snapshot;
+  const meta = PREFERENCE_SUB_LEVELS["up-next"];
+  const heldAutoplay = autoplayOn(snapshot);
+  const heldPlayback = snapshot?.preferences.upNextPlayback ?? "direct";
+  const featuredChoices = featuredCatalogChoices(snapshot);
+  const currentFeatured = activeFeaturedKey(snapshot);
+  const [error, setError] = useState<ActionError | null>(null);
+
+  const send = async (action: Action) => {
+    setError(null);
+    const outcome = await session.ask(action);
+    if (outcome.error) {
+      setError(outcome.error);
+    }
+  };
+
   return (
-    <header className="remote-screen-head">
-      <h1 className="remote-screen-title">{title}</h1>
-      <span className="remote-screen-rule" aria-hidden="true" />
-    </header>
-  );
-}
+    <section
+      className="mq-remote-screen"
+      aria-label={meta.title}
+      data-testid="settings-sublevel-up-next"
+    >
+      <PhoneHeader title={meta.title} subtitle={meta.crumb} onBack={pop} />
 
-/** The Host's own words for a refusal, announced where the control was. */
-export function Refusal({ error }: { error: ActionError | null }) {
-  return error ? (
-    <p role="alert" className="remote-failure">
-      {explain(error)}
-    </p>
-  ) : null;
+      <div className="mq-remote-body">
+        <p className="mq-remote-large-subtitle">{meta.intro}</p>
+
+        <PhoneSwitchRow
+          label={AUTOPLAY_SWITCH_LABEL}
+          checked={heldAutoplay}
+          onChange={(enabled) => void send({ type: "set_autoplay", autoplay: enabled })}
+        />
+
+        <GroupLabel>When Play is pressed on an Up next</GroupLabel>
+        <div className="mq-remote-sub-chips" data-testid="up-next-playback-chips">
+          {UP_NEXT_PLAYBACK_CHOICES.map((choice) => (
+            <Chip
+              key={choice.playback}
+              selected={heldPlayback === choice.playback}
+              onClick={() =>
+                void send({ type: "set_up_next_playback", playback: choice.playback })
+              }
+            >
+              {choice.label}
+            </Chip>
+          ))}
+        </div>
+
+        <GroupLabel>Featured catalog</GroupLabel>
+        <div className="mq-remote-sub-chips" data-testid="featured-catalog-chips">
+          <Chip
+            selected={currentFeatured === null}
+            onClick={() => void send(featuredCatalogAction(null))}
+          >
+            {NO_CATALOG}
+          </Chip>
+          {featuredChoices.map((choice) => (
+            <Chip
+              key={choice.key}
+              selected={currentFeatured === choice.key}
+              onClick={() => void send(featuredCatalogAction(choice.catalog))}
+            >
+              {choice.label}
+            </Chip>
+          ))}
+        </div>
+
+        {error ? (
+          <p role="alert" className="mq-remote-inline-error">
+            {explain(error)}
+          </p>
+        ) : null}
+      </div>
+    </section>
+  );
 }

@@ -1,180 +1,291 @@
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useState, type FormEvent } from "react";
 
-import { actionKey } from "../core/actionKey";
+import {
+  libraryAddon,
+  libraryExpired,
+  libraryPreview,
+} from "../core/accountLibrary";
 import { answeredLibrary } from "../core/answers";
-import type { Destination } from "../core/destinations";
-import type { ActionError } from "../core/errors";
-import { explain } from "../core/errors";
+import { explain, type ActionError } from "../core/errors";
+import {
+  LIBRARY_FILTERS,
+  LIBRARY_SIGNED_OUT_BODY,
+  LIBRARY_SUBTITLE,
+  filterLibraryEntries,
+  libraryEmptyCopy,
+  libraryEntryProgress,
+  libraryEntryWatched,
+  type LibraryFilter,
+} from "../core/marqueeLibrary";
 import type { NewLevel } from "../core/navigation";
 import type { Session, SessionState } from "../core/session";
 import type { Library as AccountLibrary } from "../core/wire";
-import { Button } from "../kit/Button";
-import { PosterCard } from "../kit/PosterCard";
+import { Chip } from "../kit/marquee/Chip";
+import { EmptyState } from "../kit/marquee/EmptyState";
+import { TextField } from "../kit/marquee/TextField";
+import { PhoneAddonNotice } from "../kit/marquee/phone/PhoneAddonNotice";
+import { PhonePoster } from "../kit/marquee/phone/PhonePoster";
+import { PhoneButton } from "../kit/marquee/phone/controls";
+import { titleLevel, type RemotePayload } from "./levels";
 import {
-  LIBRARY_ASK,
-  LIBRARY_EMPTY,
-  LIBRARY_READING,
-  LIBRARY_RETRY_CONTROL,
-  LIBRARY_SETTINGS_CONTROL,
-  SIGNED_OUT,
-  libraryCards,
-  libraryFailure,
-  libraryFailureCopy,
-  libraryPhase,
-} from "./libraryScreen";
-import type { RemotePayload } from "./levels";
+  STREMIO_EMAIL_LABEL,
+  STREMIO_EMAIL_PLACEHOLDER,
+  STREMIO_PASSWORD_LABEL,
+  STREMIO_PASSWORD_PLACEHOLDER,
+  STREMIO_SIGN_IN,
+  signInRequest,
+} from "./settingsScreen";
 
 export type LibraryProps = {
-  /** The Session the one `library` ask goes through. */
   session: Session;
-  /** What the Host last published: the account fact, and the Addons. */
   state: SessionState;
-  /** A press on an entry pushes the Title level B6 will draw. */
   push: (level: NewLevel<RemotePayload>) => string;
-  /** The signed-out arm's one control: the destination where sign-in lives. */
-  choose: (destination: Destination) => void;
 };
 
-/**
- * Library, in a hand (#208, ADR-0029, ADR-0035 §1).
- *
- * The account's Library is not the Host's Snapshot: it is a `library` question,
- * answered to the client that asked, so this screen holds its answer for the
- * visit and asks again only when a person asks it to. Which arm is drawn is the
- * Host's fact — no Stremio account linked is the gate, and sign-in is Settings'
- * form (B7), so the gate offers that destination and draws no credentials here.
- *
- * With an account, a mount reads once; a refusal is the Host's words, and its
- * way out is the way back into the account where the session expired, or a
- * retry where it did not. A press on an entry opens its Title through B3's
- * level; an entry no Addon answers is drawn with its mark and does not open.
- */
-export function Library({ session, state, push, choose }: LibraryProps) {
+export function Library({ session, state, push }: LibraryProps) {
   const snapshot = state.snapshot;
-  // Whether an account is linked is the Host's fact. Before the first Snapshot
-  // it is not a guess to make, so no ask leaves this client.
-  const held = snapshot ? snapshot.protection.stremioHeld : null;
-
-  const [answer, setAnswer] = useState<AccountLibrary | null>(null);
-  const [refused, setRefused] = useState<ActionError | null>(null);
-
-  const read = useCallback(async () => {
-    const outcome = await session.ask(LIBRARY_ASK);
-    setRefused(outcome.error);
-    if (!outcome.error) {
-      setAnswer(answeredLibrary(outcome.response));
-    }
-  }, [session]);
-
-  // The signed-in arm reads on mount. The effect is keyed on the Host's fact,
-  // so a Snapshot that moves no account never asks again; a retry asks through
-  // the same function.
-  useEffect(() => {
-    if (held === true) {
-      void read();
-    }
-  }, [held, read]);
-
-  const reading = state.pending.has(actionKey(LIBRARY_ASK));
-  const failure = libraryFailure(answer, refused);
-  const phase = libraryPhase(answer, refused, reading);
-  const cards =
-    phase === "list" && answer
-      ? libraryCards(snapshot?.addons ?? [], answer.entries)
-      : [];
+  const held = snapshot?.protection.stremioHeld ?? false;
 
   return (
-    <section className="remote-library" data-testid="remote-library">
-      <header className="remote-screen-head">
-        <h1 className="remote-screen-title">Library</h1>
-        <span className="remote-screen-rule" aria-hidden="true" />
+    <section
+      className="mq-remote-screen"
+      aria-label="Library"
+      data-testid="remote-library"
+    >
+      <header className="mq-remote-large-head">
+        <div className="mq-remote-large-head-titles">
+          <h1 className="mq-remote-large-title">Library</h1>
+          <p className="mq-remote-large-subtitle">{LIBRARY_SUBTITLE}</p>
+        </div>
       </header>
 
-      {held === null ? null : held === false ? (
-        <div className="remote-empty" data-testid="remote-library-signed-out">
-          <p className="remote-screen-title">{SIGNED_OUT.kicker}</p>
-          <h2 className="remote-empty-title">{SIGNED_OUT.title}</h2>
-          <p className="remote-empty-body">{SIGNED_OUT.body}</p>
-          <Button variant="primary" onClick={() => choose("settings")}>
-            {SIGNED_OUT.control}
-          </Button>
-        </div>
-      ) : phase === "failure" && failure ? (
-        <LibraryFailure
-          failure={failure}
-          pending={reading}
-          onSettings={() => choose("settings")}
-          onRetry={() => void read()}
-        />
-      ) : phase === "empty" ? (
-        <div className="remote-empty" data-testid="remote-library-empty">
-          <h2 className="remote-empty-title">{LIBRARY_EMPTY.title}</h2>
-          <p className="remote-empty-body">{LIBRARY_EMPTY.body}</p>
-        </div>
-      ) : phase === "reading" ? (
-        <p role="status" className="remote-quiet">
-          {LIBRARY_READING}
+      {snapshot === null ? (
+        <p className="mq-remote-waiting" role="status">
+          Waiting for the Host…
         </p>
+      ) : held ? (
+        <LibraryRoom session={session} state={state} push={push} />
       ) : (
-        <div className="remote-library-grid" data-testid="remote-library-grid">
-          {cards.map(({ entry, level, openable, continueWatching }) => (
-            <PosterCard
-              key={entry.id}
-              name={entry.name}
-              poster={entry.poster}
-              continueWatching={continueWatching}
-              unplayable={!openable}
-              openable={openable}
-              testId={`library-card-${entry.id}`}
-              onClick={level ? () => push(level) : undefined}
-            />
-          ))}
+        <div className="mq-remote-gate" data-testid="remote-library-gate">
+          <h2 className="mq-remote-gate-title">Sign in to Stremio</h2>
+          <p className="mq-remote-gate-body">{LIBRARY_SIGNED_OUT_BODY}</p>
+          <StremioSignInForm session={session} />
         </div>
       )}
     </section>
   );
 }
 
-/**
- * A refused read: the Host's own words through `explain`, and the one control
- * that is the way out. An expired session points at Settings, where the account
- * is signed in again; anything else asks the Host again. Never an empty Library
- * (ADR-0029).
- */
-function LibraryFailure({
-  failure,
-  pending,
-  onSettings,
-  onRetry,
+function LibraryRoom({
+  session,
+  state,
+  push,
 }: {
-  failure: ActionError;
-  pending: boolean;
-  onSettings: () => void;
-  onRetry: () => void;
+  session: Session;
+  state: SessionState;
+  push: (level: NewLevel<RemotePayload>) => string;
 }) {
-  const copy = libraryFailureCopy(failure);
+  const snapshot = state.snapshot;
+  const [library, setLibrary] = useState<AccountLibrary | null>(null);
+  const [error, setError] = useState<ActionError | null>(null);
+  const [reading, setReading] = useState(true);
+  const [filter, setFilter] = useState<LibraryFilter>("all");
+
+  const load = useCallback(async () => {
+    setReading(true);
+    setError(null);
+    const outcome = await session.ask({ type: "library" });
+    setReading(false);
+    if (outcome.error) {
+      setError(outcome.error);
+      setLibrary(null);
+      return;
+    }
+    setLibrary(answeredLibrary(outcome.response));
+  }, [session]);
+
+  useEffect(() => {
+    void load();
+  }, [load]);
+
+  const failure = error ?? library?.failure ?? null;
+  const expired = libraryExpired(failure);
+  const entries = library?.entries ?? [];
+  const addons = snapshot?.addons ?? [];
+  const watchProgress = snapshot?.watchProgress ?? [];
+  const filtered = filterLibraryEntries(entries, filter);
+  const emptyCopy = libraryEmptyCopy(filter);
+
+  if (reading && library === null && !failure) {
+    return (
+      <p className="mq-remote-waiting" role="status" data-testid="library-loading">
+        Reading your Library…
+      </p>
+    );
+  }
 
   return (
-    <section
-      className="remote-library-failure"
-      data-testid="remote-library-failure"
-    >
-      <p role="alert" className="remote-failure">
-        {explain(failure)}
-      </p>
+    <>
+      <div className="mq-remote-chips" data-testid="library-filters">
+        {LIBRARY_FILTERS.map((item) => (
+          <Chip
+            key={item.id}
+            selected={filter === item.id}
+            data-testid={`library-filter-${item.id}`}
+            onClick={() => setFilter(item.id)}
+          >
+            {item.label}
+          </Chip>
+        ))}
+      </div>
 
-      {copy.control === "settings" ? (
-        <>
-          <p className="remote-quiet">{copy.note}</p>
-          <Button variant="primary" onClick={onSettings}>
-            {LIBRARY_SETTINGS_CONTROL}
-          </Button>
-        </>
+      {expired ? (
+        <div className="mq-remote-gate" data-testid="library-expired">
+          <h2 className="mq-remote-gate-title">Stremio session expired</h2>
+          <p className="mq-remote-gate-body" role="alert">
+            {failure ? explain(failure) : "Your Stremio session has expired."}
+          </p>
+          <StremioSignInForm session={session} onSignedIn={() => void load()} />
+        </div>
       ) : (
-        <Button variant="ghost" pending={pending} onClick={onRetry}>
-          {LIBRARY_RETRY_CONTROL}
-        </Button>
+        <>
+          {failure ? (
+            <div className="mq-remote-row-notice" data-testid="remote-library-failure">
+              <PhoneAddonNotice
+                title="Stremio Library"
+                reason={explain(failure)}
+                disabled={reading}
+                onRetry={() => void load()}
+              />
+            </div>
+          ) : null}
+
+          {filtered.length > 0 ? (
+            <div className="mq-remote-grid" data-testid="library-grid">
+              {filtered.map((entry) => {
+                const addon = libraryAddon(addons, entry);
+                const unplayable = !addon || state.unplayable.has(entry.id);
+                const watched = libraryEntryWatched(entry, watchProgress);
+                const progress = libraryEntryProgress(entry, watched);
+                const preview = libraryPreview(entry);
+                return (
+                  <div
+                    key={`${entry.type}/${entry.id}`}
+                    className="mq-remote-poster-slot"
+                    data-watched={watched || undefined}
+                    data-unplayable={unplayable || undefined}
+                  >
+                    <PhonePoster
+                      name={entry.name}
+                      poster={entry.poster}
+                      progress={progress}
+                      disabled={!addon}
+                      testId={`library-card-${entry.id}`}
+                      onPress={() => {
+                        if (!addon) {
+                          return;
+                        }
+                        push(
+                          titleLevel({
+                            addon: addon.id,
+                            id: preview.id,
+                            type: preview.type,
+                            name: preview.name,
+                          }),
+                        );
+                      }}
+                    />
+                    {unplayable ? (
+                      <span className="mq-remote-poster-badge" aria-hidden="true">
+                        Unplayable
+                      </span>
+                    ) : watched ? (
+                      <span
+                        className="mq-remote-poster-badge"
+                        data-tone="accent"
+                        aria-hidden="true"
+                      >
+                        Watched
+                      </span>
+                    ) : null}
+                  </div>
+                );
+              })}
+            </div>
+          ) : !reading ? (
+            <div data-testid="remote-library-empty">
+              <EmptyState
+                icon="library"
+                title={emptyCopy.title}
+                body={emptyCopy.body}
+              />
+            </div>
+          ) : null}
+        </>
       )}
-    </section>
+    </>
+  );
+}
+
+function StremioSignInForm({
+  session,
+  onSignedIn,
+}: {
+  session: Session;
+  onSignedIn?: () => void;
+}) {
+  const [email, setEmail] = useState("");
+  const [password, setPassword] = useState("");
+  const [error, setError] = useState<ActionError | null>(null);
+  const [pending, setPending] = useState(false);
+
+  const submit = async (event: FormEvent<HTMLFormElement>) => {
+    event.preventDefault();
+    const action = signInRequest(email, password);
+    if (!action || pending) {
+      return;
+    }
+    setError(null);
+    setPending(true);
+    const outcome = await session.ask(action);
+    setPending(false);
+    if (outcome.error) {
+      setError(outcome.error);
+      return;
+    }
+    setEmail("");
+    setPassword("");
+    onSignedIn?.();
+  };
+
+  return (
+    <form className="mq-remote-settings-group" onSubmit={submit}>
+      <TextField
+        label={STREMIO_EMAIL_LABEL}
+        type="email"
+        autoComplete="email"
+        placeholder={STREMIO_EMAIL_PLACEHOLDER}
+        value={email}
+        onChange={setEmail}
+        disabled={pending}
+      />
+      <TextField
+        label={STREMIO_PASSWORD_LABEL}
+        type="password"
+        autoComplete="current-password"
+        placeholder={STREMIO_PASSWORD_PLACEHOLDER}
+        value={password}
+        onChange={setPassword}
+        disabled={pending}
+      />
+      {error ? (
+        <p role="alert" className="mq-remote-inline-error">
+          {explain(error)}
+        </p>
+      ) : null}
+      <PhoneButton type="submit" kind="primary" disabled={pending}>
+        {pending ? "Signing in…" : STREMIO_SIGN_IN}
+      </PhoneButton>
+    </form>
   );
 }

@@ -233,8 +233,8 @@ describe("the Remote's docked strip", () => {
       expect(screen.getByLabelText(STRIP_LABEL)).toBeInTheDocument(),
     );
     expect(screen.getByRole("button", { name: "Home" })).toHaveAttribute(
-      "aria-pressed",
-      "true",
+      "aria-current",
+      "page",
     );
   });
 });
@@ -251,8 +251,8 @@ describe("the Remote's expanded card", () => {
       ).not.toBeInTheDocument(),
     );
     expect(screen.getByRole("button", { name: "Home" })).toHaveAttribute(
-      "aria-pressed",
-      "true",
+      "aria-current",
+      "page",
     );
     expect(host.asked("stop_playback")).toEqual([]);
   });

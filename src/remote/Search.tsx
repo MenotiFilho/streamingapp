@@ -1,74 +1,39 @@
-import { useEffect, useRef, useSyncExternalStore, type FormEvent } from "react";
+import { useEffect, useMemo, useRef, useSyncExternalStore, type FormEvent } from "react";
 
 import { keyOf } from "../core/browse";
-import { discoverPlayable } from "../core/discover";
+import { blankFeed, feedState } from "../core/discover";
 import { explain } from "../core/errors";
 import { addonLabel } from "../core/home";
-import { programIndex, rowTagOf } from "../core/homeProgramme";
+import { marqueeTmdbUnplayable } from "../core/marqueeDiscover";
+import {
+  marqueeSearchPlan,
+  searchCanReadOn,
+  searchCatalogRowNote,
+  searchCatalogRowTitles,
+  searchNoCatalogsNote,
+  searchPromptCopy,
+  searchTmdbRowNote,
+} from "../core/marqueeSearch";
 import type { NewLevel } from "../core/navigation";
-import {
-  SEARCH_KINDS,
-  queryOf,
-  searchFeedKey,
-  searchReads,
-  type SearchKind,
-} from "../core/search";
+import { queryOf, searchFeedKey, type SearchKind } from "../core/search";
 import { EMPTY_SEARCH_VIEW, type Session, type SessionState } from "../core/session";
-import type { MetaPreview } from "../core/wire";
-import { Button } from "../kit/Button";
-import { Field } from "../kit/Field";
-import { PosterCard } from "../kit/PosterCard";
-import { RemoteRail } from "./RemoteRail";
-import { MoreControl, PagingControl, RowNote } from "./RemoteRow";
-import { gridLevel } from "./grid";
-import { feedMore, feedPhase } from "./feed";
+import type { AddonManifest, MetaPreview } from "../core/wire";
+import { EmptyState } from "../kit/marquee/EmptyState";
+import { SearchField } from "../kit/marquee/SearchField";
+import { PhoneAddonNotice } from "../kit/marquee/phone/PhoneAddonNotice";
+import { PhonePoster } from "../kit/marquee/phone/PhonePoster";
+import { PhoneRowHeader } from "../kit/marquee/phone/PhoneRowHeader";
+import { PhoneButton } from "../kit/marquee/phone/controls";
 import { titleLevelOf, type RemotePayload } from "./levels";
-import {
-  CATALOGS_READING,
-  NO_SEARCHABLE_CATALOGS,
-  kindLabel,
-  rowNote,
-  searchNote,
-  searchPlaceholder,
-} from "./searchScreen";
 
 export type SearchProps = {
-  /** The Session the asks go through, and the Titles it learned are unplayable. */
   session: Session;
-  /** What the Host last published: the credential, the Addons, the marks. */
   state: SessionState;
-  /** A press on a card pushes the Title level B6 will draw. */
   push: (level: NewLevel<RemotePayload>) => string;
 };
 
-/** The one field the bar draws. */
-const SEARCH_LABEL = "Search for a Title";
-
-/**
- * Search, in a hand (#207, ADR-0035 §1).
- *
- * The bar submits, never asks per keystroke, and an empty field is not a
- * question: it sends nothing. Which arm a query takes is the Host's fact, read
- * from the Snapshot — with a TMDB Credential both kinds are asked for page 1,
- * held separately and drawn as Movies then Series, each with its own failure
- * and paging; without one, a single `search_catalogs` ask answers one row per
- * searchable Catalog. There are no kind chips (ADR-0036 §1). A credential
- * gained or cleared is a new feed: the old arm's query is dropped rather than
- * answered by the new one.
- *
- * The field, the query and the rows live in the Session (#264): pushing a Title
- * or a grid unmounts this screen, and Back returns to the same words, rows and
- * pages without asking page 1 again. A keyed row's More opens that row as a
- * whole-row grid, which reads on by itself.
- *
- * A press opens a Title and nothing more: a keyed hit is a Discovered Title
- * (TMDB named it, so it carries no Addon) and a keyless one carries the Addon
- * whose Catalog answered it. B6 owns the request itself.
- */
 export function Search({ session, state, push }: SearchProps) {
   const snapshot = state.snapshot;
-  // Which arm a query takes is the Host's fact. Before the first Snapshot it is
-  // not a guess to make: the bar waits rather than asking the wrong Host.
   const credential = snapshot ? snapshot.protection.tmdbHeld : null;
   const keyed = credential ?? false;
 
@@ -76,13 +41,14 @@ export function Search({ session, state, push }: SearchProps) {
     session.searchView.subscribe,
     session.searchView.get,
   );
-  const { draft, query } = view;
+  const catalogAnswers = useSyncExternalStore(
+    session.searchCatalogs.subscribe,
+    session.searchCatalogs.getSnapshot,
+  );
 
-  const setDraft = (next: string) => session.searchView.set({ draft: next, query });
+  const { draft, query: committed } = view;
+  const setDraft = (next: string) => session.searchView.set({ draft: next, query: committed });
 
-  // A credential gained or cleared changes which arm a query takes. The words
-  // and rows of the old arm are not answers to the new one, so they go. The
-  // first Snapshot only settles which arm this is; it is not a change.
   const previous = useRef<boolean | null>(null);
   useEffect(() => {
     if (credential === null) {
@@ -94,259 +60,291 @@ export function Search({ session, state, push }: SearchProps) {
     previous.current = credential;
   }, [credential, session]);
 
-  // The rows live outside this screen: a mount joins what the Session already
-  // holds, and only a query with no answer asks the Host again. Which asks a
-  // query makes is the core's one decision (`searchReads`), shared with the
-  // window.
   useEffect(() => {
-    if (query === null) {
+    if (committed === null || credential === null) {
       return;
     }
-    // A credential change resets the view in the effect above; this render's
-    // closure still holds the old query, and it must not ask the new arm.
-    if (session.searchView.get().query !== query) {
-      return;
-    }
-    const read = searchReads(keyed, query);
-    if (read.arm === "catalogs") {
-      session.searchCatalogs.search(read.query);
-      return;
-    }
-    for (const feed of read.feeds) {
+    const plan = marqueeSearchPlan(credential, committed);
+    session.searchCatalogs.search(plan.catalogsQuery);
+    for (const feed of plan.tmdbFeeds) {
       session.feeds.read(feed.key, feed.first, feed.next);
     }
-  }, [keyed, query, session]);
+  }, [committed, credential, session]);
+
+  const watchedFilmKeys = useMemo(() => {
+    const set = new Set<string>();
+    for (const entry of snapshot?.watchProgress ?? []) {
+      if (entry.watched && entry.title.type === "movie") {
+        set.add(`${entry.title.type}:${entry.title.id}`);
+      }
+    }
+    return set;
+  }, [snapshot?.watchProgress]);
 
   const submit = (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault();
-    const next = queryOf(draft);
-    if (next === null) {
-      return;
-    }
-    session.searchView.set({ draft, query: next });
-  };
-
-  const openGrid = (at: SearchKind, index: string) => {
+    const query = queryOf(draft);
     if (query === null) {
       return;
     }
-    const key = searchFeedKey(query, at);
-    const feed = session.feeds.feed(key);
-    if (feed.items.length === 0) {
-      return;
-    }
-    push(
-      gridLevel({
-        title: kindLabel(at),
-        index,
-        tag: rowTagOf("TMDB", at, feed.items.length),
-        addon: null,
-        source: {
-          kind: "search",
-          feedKind: at,
-          query,
-          feedKey: key,
-        },
-      }),
-    );
+    session.searchView.set({ draft, query });
   };
 
-  const open = (addon: string | null, meta: MetaPreview) => {
+  const openTitle = (addon: string | null, meta: MetaPreview) => {
     push(titleLevelOf(addon, meta));
   };
 
-  return (
-    <section className="remote-search" data-testid="remote-search">
-      <header className="remote-screen-head">
-        <h1 className="remote-screen-title">Search</h1>
-        <span className="remote-screen-rule" aria-hidden="true" />
-      </header>
+  const answer = committed === null ? null : catalogAnswers.answers.get(committed);
+  const catalogRows = answer?.rows ?? null;
+  const catalogTitles = searchCatalogRowTitles(catalogRows ?? []);
+  const catalogFailure = answer?.failure ?? null;
+  const catalogLoading = committed !== null && catalogAnswers.reading.has(committed);
+  const prompt = searchPromptCopy(keyed);
+  const noCatalogs = searchNoCatalogsNote(keyed);
+  const plan = committed !== null ? marqueeSearchPlan(keyed, committed) : null;
 
-      {credential === null ? null : (
+  return (
+    <section
+      className="mq-remote-screen"
+      aria-label="Search"
+      data-testid="remote-search"
+    >
+      <h1 className="mq-remote-visually-hidden">Search</h1>
+
+      {snapshot === null ? (
+        <p className="mq-remote-waiting" role="status">
+          Waiting for the Host…
+        </p>
+      ) : (
         <>
-          <form className="remote-search-form" role="search" onSubmit={submit}>
-            <Field
-              id="remote-search-query"
-              label={SEARCH_LABEL}
+          <form
+            className="mq-remote-search-bar"
+            role="search"
+            aria-label="Search"
+            onSubmit={submit}
+          >
+            <SearchField
+              label="Search for a Title"
+              placeholder={
+                keyed
+                  ? "Search movies and series"
+                  : "Search Addons’ searchable Catalogs"
+              }
               value={draft}
               onChange={setDraft}
-              placeholder={searchPlaceholder(keyed)}
-              autoComplete="off"
-              trailing={
-                <Button
-                  type="submit"
-                  variant="primary"
-                  disabled={queryOf(draft) === null}
-                >
-                  Search
-                </Button>
-              }
             />
           </form>
 
-          <div className="remote-page-panel">
-            {keyed && query !== null ? (
-              <KeyedRows
-                session={session}
-                state={state}
-                query={query}
-                open={open}
-                openGrid={openGrid}
-              />
-            ) : null}
+          {committed === null ? (
+            <div data-testid="search-prompt">
+              <EmptyState icon="search" title={prompt.title} body={prompt.body} />
+            </div>
+          ) : (
+            <div className="mq-remote-search-results" data-testid="search-results">
+              {catalogLoading && !catalogRows ? (
+                <p className="mq-remote-row-note" role="status" data-testid="search-catalogs-loading">
+                  Searching every searchable Catalog…
+                </p>
+              ) : null}
 
-            {!keyed && query !== null ? (
-              <CatalogRows session={session} state={state} query={query} open={open} />
-            ) : null}
-          </div>
+              {catalogFailure ? (
+                <div className="mq-remote-row-notice" data-testid="search-catalogs-failure">
+                  <PhoneAddonNotice
+                    title="Catalogs"
+                    reason={explain(catalogFailure)}
+                    disabled={catalogLoading}
+                    onRetry={() => session.searchCatalogs.retry(committed)}
+                  />
+                </div>
+              ) : null}
+
+              {catalogRows?.map((row, index) => {
+                const rowKey = keyOf(row);
+                const source = addonLabel(snapshot, row.addon);
+                const title = catalogTitles[index] ?? row.name;
+                const note = searchCatalogRowNote(row, committed);
+                return (
+                  <section
+                    key={rowKey}
+                    className="mq-remote-row"
+                    data-testid={`search-row-${rowKey}`}
+                  >
+                    <div className="mq-remote-row-head">
+                      <PhoneRowHeader title={title} source={source} />
+                    </div>
+
+                    {row.metas.length > 0 ? (
+                      <div className="mq-remote-track">
+                        {row.metas.map((meta) => {
+                          const watched = watchedFilmKeys.has(`${meta.type}:${meta.id}`);
+                          const unplayable = state.unplayable.has(meta.id);
+                          return (
+                            <div
+                              key={meta.id}
+                              className="mq-remote-poster-slot"
+                              data-watched={watched || undefined}
+                              data-unplayable={unplayable || undefined}
+                            >
+                              <PhonePoster
+                                name={meta.name}
+                                poster={meta.poster}
+                                testId={`search-card-${row.addon}-${meta.id}`}
+                                onPress={() => openTitle(row.addon, meta)}
+                              />
+                              {unplayable ? (
+                                <span className="mq-remote-poster-badge" aria-hidden="true">
+                                  Unplayable
+                                </span>
+                              ) : watched ? (
+                                <span
+                                  className="mq-remote-poster-badge"
+                                  data-tone="accent"
+                                  aria-hidden="true"
+                                >
+                                  Watched
+                                </span>
+                              ) : null}
+                            </div>
+                          );
+                        })}
+                      </div>
+                    ) : null}
+
+                    {row.failure ? (
+                      <div className="mq-remote-row-notice">
+                        <PhoneAddonNotice
+                          title={source}
+                          reason={explain(row.failure)}
+                          disabled={catalogLoading}
+                          onRetry={() => session.searchCatalogs.retry(committed)}
+                        />
+                      </div>
+                    ) : note ? (
+                      <p className="mq-remote-row-note">{note}</p>
+                    ) : null}
+                  </section>
+                );
+              })}
+
+              {!catalogLoading && !catalogFailure && catalogRows?.length === 0 && noCatalogs ? (
+                <p className="mq-remote-row-note" data-testid="search-no-answer">
+                  {noCatalogs}
+                </p>
+              ) : null}
+
+              {plan?.tmdbFeeds.map(({ kind }) => (
+                <TmdbSearchRow
+                  key={kind}
+                  kind={kind}
+                  query={committed}
+                  session={session}
+                  addons={snapshot.addons}
+                  watchedFilmKeys={watchedFilmKeys}
+                  unplayable={state.unplayable}
+                  onOpen={(meta) => openTitle(null, meta)}
+                />
+              ))}
+            </div>
+          )}
         </>
       )}
     </section>
   );
 }
 
-/** The two keyed rows, read from the Session's feed store (#264). */
-function KeyedRows({
-  session,
-  state,
+function TmdbSearchRow({
+  kind,
   query,
-  open,
-  openGrid,
+  session,
+  addons,
+  watchedFilmKeys,
+  unplayable,
+  onOpen,
 }: {
-  session: Session;
-  state: SessionState;
+  kind: SearchKind;
   query: string;
-  open: (addon: string | null, meta: MetaPreview) => void;
-  openGrid: (at: SearchKind, index: string) => void;
+  session: Session;
+  addons: readonly AddonManifest[];
+  watchedFilmKeys: ReadonlySet<string>;
+  unplayable: ReadonlySet<string>;
+  onOpen: (meta: MetaPreview) => void;
 }) {
-  const snapshot = state.snapshot;
   const feeds = useSyncExternalStore(session.feeds.subscribe, session.feeds.getSnapshot);
+  const feedKey = searchFeedKey(query, kind);
+  const feed = feeds.rows.get(feedKey) ?? blankFeed();
+  const reading = feeds.reading.has(feedKey);
+  const phase = feedState(feed, reading);
+  const title = kind === "movie" ? "Movies" : "Series";
+  const note = searchTmdbRowNote(feed, phase, kind, query);
+  const canMore = searchCanReadOn(feed);
 
   return (
-    <>
-      {SEARCH_KINDS.map(({ kind, label }, index) => {
-        const key = searchFeedKey(query, kind);
-        const feed = feeds.rows.get(key);
-        if (!feed) {
-          return null;
-        }
-        const loading = feeds.reading.has(key);
-        const phase = feedPhase(feed, loading);
-        const couldPlay = snapshot ? discoverPlayable(snapshot.addons, kind) : true;
-        return (
-          <RemoteRail
-            key={kind}
-            index={programIndex(index + 1)}
-            title={label}
-            tag={rowTagOf("TMDB", kind, feed.items.length)}
-            testId={`remote-search-row-${kind}`}
-            note={
-              <RowNote failure={feed.failure} quiet={searchNote(phase, kind, query)} />
-            }
-            action={
-              <PagingControl
-                failure={feed.failure}
-                more={feedMore(feed)}
-                loading={loading}
-                onMore={() => session.feeds.more(key)}
-              />
-            }
-            more={
-              feed.items.length > 0 ? (
-                <MoreControl
-                  label={label}
-                  onOpen={() => openGrid(kind, programIndex(index + 1))}
-                />
-              ) : null
-            }
-          >
-            {feed.items.map((meta) => (
-              <PosterCard
+    <section className="mq-remote-row" data-testid={`remote-search-row-${kind}`}>
+      <div className="mq-remote-row-head">
+        <PhoneRowHeader title={title} source="TMDB" />
+      </div>
+
+      {feed.items.length > 0 ? (
+        <div className="mq-remote-track">
+          {feed.items.map((meta) => {
+            const watched = watchedFilmKeys.has(`${meta.type}:${meta.id}`);
+            const isUnplayable = marqueeTmdbUnplayable(addons, kind, unplayable, meta.id);
+            return (
+              <div
                 key={meta.id}
-                name={meta.name}
-                poster={meta.poster}
-                rating={meta.imdbRating?.trim() || null}
-                subtitle={meta.releaseInfo}
-                unplayable={!couldPlay || state.unplayable.has(meta.id)}
-                testId={`search-card-${kind}-${meta.id}`}
-                onClick={() => open(null, meta)}
-              />
-            ))}
-          </RemoteRail>
-        );
-      })}
-    </>
-  );
-}
-
-/** The keyless arm: one `search_catalogs` answer, kept by the Session (#264). */
-function CatalogRows({
-  session,
-  state,
-  query,
-  open,
-}: {
-  session: Session;
-  state: SessionState;
-  query: string;
-  open: (addon: string | null, meta: MetaPreview) => void;
-}) {
-  const snapshot = state.snapshot;
-  const answer = useSyncExternalStore(
-    session.searchCatalogs.subscribe,
-    session.searchCatalogs.getSnapshot,
-  );
-  const held = answer.answers.get(query) ?? { rows: null, failure: null };
-  const reading = answer.reading.has(query);
-
-  return (
-    <div className="remote-search-catalogs" data-testid="remote-search-catalogs">
-      {reading ? (
-        <p role="status" className="remote-quiet">
-          {CATALOGS_READING}
-        </p>
+                className="mq-remote-poster-slot"
+                data-watched={watched || undefined}
+                data-unplayable={isUnplayable || undefined}
+              >
+                <PhonePoster
+                  name={meta.name}
+                  poster={meta.poster}
+                  testId={`search-card-${kind}-${meta.id}`}
+                  onPress={() => onOpen(meta)}
+                />
+                {isUnplayable ? (
+                  <span className="mq-remote-poster-badge" aria-hidden="true">
+                    Unplayable
+                  </span>
+                ) : watched ? (
+                  <span
+                    className="mq-remote-poster-badge"
+                    data-tone="accent"
+                    aria-hidden="true"
+                  >
+                    Watched
+                  </span>
+                ) : null}
+              </div>
+            );
+          })}
+        </div>
       ) : null}
 
-      {held.failure ? (
-        <>
-          <p role="alert" className="remote-failure">
-            {explain(held.failure)}
-          </p>
-          <Button variant="ghost" onClick={() => session.searchCatalogs.retry(query)}>
-            Search again
-          </Button>
-        </>
+      {canMore ? (
+        <div className="mq-remote-read-on">
+          <PhoneButton
+            kind="secondary"
+            disabled={reading}
+            onClick={() => session.feeds.more(feedKey)}
+          >
+            {reading ? "Reading on…" : "Read on"}
+          </PhoneButton>
+        </div>
       ) : null}
 
-      {held.rows?.map((row, index) => (
-        <RemoteRail
-          key={keyOf(row)}
-          index={programIndex(index + 1)}
-          title={row.name}
-          tag={rowTagOf(addonLabel(snapshot, row.addon), row.type, row.metas.length)}
-          testId={`remote-search-catalog-${keyOf(row)}`}
-          note={<RowNote failure={row.failure} quiet={rowNote(row)} />}
-        >
-          {row.metas.map((meta) => (
-            <PosterCard
-              key={meta.id}
-              name={meta.name}
-              poster={meta.poster}
-              rating={meta.imdbRating?.trim() || null}
-              subtitle={meta.releaseInfo}
-              unplayable={state.unplayable.has(meta.id)}
-              testId={`search-card-${row.addon}-${meta.id}`}
-              onClick={() => open(row.addon, meta)}
-            />
-          ))}
-        </RemoteRail>
-      ))}
-
-      {!reading && !held.failure && held.rows?.length === 0 ? (
-        <p role="status" className="remote-quiet">
-          {NO_SEARCHABLE_CATALOGS}
-        </p>
+      {feed.failure ? (
+        <div className="mq-remote-row-notice">
+          <PhoneAddonNotice
+            title="TMDB"
+            reason={explain(feed.failure)}
+            disabled={reading}
+            onRetry={() => session.feeds.more(feedKey)}
+          />
+        </div>
+      ) : note ? (
+        <p className="mq-remote-row-note">{note}</p>
       ) : null}
-    </div>
+    </section>
   );
 }

@@ -1,15 +1,13 @@
 import { act, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
-import { describe, expect, test } from "vitest";
+import { MotionGlobalConfig } from "motion/react";
+import { afterAll, beforeAll, describe, expect, test } from "vitest";
 
 import {
   addOutcome,
   addStatusText,
-  catalogsOf,
   moveTarget,
-  resourcesOf,
 } from "../core/addons";
 import { explain, type ActionError } from "../core/errors";
-import type { HostLink } from "../core/link";
 import { Session } from "../core/session";
 import type { AddonManifest, Response, Snapshot } from "../core/wire";
 import { Addons as AddonsScreen } from "./Addons";
@@ -18,15 +16,14 @@ import { FakeHost, type Respond } from "./fakeHost.testing";
 import { NOTHING } from "./fakeSocket.testing";
 import { RemoteApp } from "./RemoteApp";
 
-/**
- * Addons over a fake HostLink (#209, ADR-0032, docs/agents/testing.md).
- *
- * The app is the harness, because a Remove press is a level and not a banner:
- * every assertion is a decision at the boundary — the Action the form sends,
- * what a refusal leaves in the field, the status a successful add prints
- * through the core's `addOutcome`, the register's order, the position a Move
- * press names, and the question a Remove press pushes before anything leaves.
- */
+let previousSkipAnimations: boolean | undefined;
+beforeAll(() => {
+  previousSkipAnimations = MotionGlobalConfig.skipAnimations;
+  MotionGlobalConfig.skipAnimations = true;
+});
+afterAll(() => {
+  MotionGlobalConfig.skipAnimations = previousSkipAnimations;
+});
 
 const CINEMETA: AddonManifest = {
   id: "cinemeta",
@@ -56,38 +53,8 @@ function withAddons(addons: AddonManifest[], revision = 1): Snapshot {
   return { ...NOTHING, revision, addons };
 }
 
-/** An answer that carries the Snapshot a successful Change publishes. */
 function changed(addons: AddonManifest[]): Response {
   return { snapshots: [withAddons(addons, 2)], answer: null };
-}
-
-/** The status the form prints for an answer, through the core's own reading. */
-function statusOf(before: AddonManifest[], after: AddonManifest[]): string {
-  const outcome = addOutcome(before, after);
-  if (!outcome) {
-    throw new Error("an answer with a Snapshot always reads");
-  }
-  return addStatusText(outcome);
-}
-
-/**
- * The Host's door with a state read React can cache.
- *
- * `FakeHost.state` builds a fresh object per call, which `useSyncExternalStore`
- * would read as a change on every render; the door is wrapped rather than the
- * fake being reshaped, because the state this page follows never moves here.
- */
-function doorOf(host: FakeHost): HostLink {
-  const state = host.state();
-  return {
-    snapshot: () => host.snapshot(),
-    dispatch: (action) => host.dispatch(action),
-    onSnapshot: (handler) => host.onSnapshot(handler),
-    onRevision: (handler) => host.onRevision(handler),
-    state: () => state,
-    onState: (handler) => host.onState(handler),
-    close: () => host.close(),
-  };
 }
 
 function mount({
@@ -98,40 +65,34 @@ function mount({
   respond?: Respond;
 } = {}) {
   const host = new FakeHost(snapshot, respond);
-  const view = render(<RemoteApp link={doorOf(host)} />);
+  const view = render(<RemoteApp link={host} />);
   return { host, view };
 }
 
-/** Walk the index to the destination, and hand back once its screen is drawn. */
 async function openAddons() {
   fireEvent.click(await screen.findByRole("button", { name: "Addons" }));
   await screen.findByTestId("remote-addons");
+}
+
+async function submitManifest(value: string) {
+  const field = screen.getByLabelText(ADDON_FIELD_LABEL);
+  fireEvent.change(field, { target: { value } });
+  fireEvent.click(screen.getByRole("button", { name: ADDON_SUBMIT }));
+  return field;
 }
 
 async function flush() {
   await act(async () => {
     await Promise.resolve();
   });
-  await act(async () => {
-    await Promise.resolve();
-  });
 }
 
-/** Paste one manifest into the form and press its one control. */
-async function submitManifest(value: string) {
-  const field = await screen.findByLabelText(ADDON_FIELD_LABEL);
-  fireEvent.change(field, { target: { value } });
-  fireEvent.click(screen.getByRole("button", { name: ADDON_SUBMIT }));
-  return field;
+function statusOf(before: AddonManifest[], after: AddonManifest[]): string {
+  return addStatusText(addOutcome(before, after)!);
 }
 
-/** The register's rows, in the order the Host sent them. */
-function rows(): HTMLElement[] {
-  return screen.getAllByTestId(/^addon-row-/);
-}
-
-describe("the Addons form", () => {
-  test("waits for the first Snapshot, so no add is read against a list it never saw", () => {
+describe("adding a manifest", () => {
+  test("before the first Snapshot nothing goes out", () => {
     const host = new FakeHost(NOTHING);
     const session = new Session(host);
     render(
@@ -142,8 +103,7 @@ describe("the Addons form", () => {
       />,
     );
 
-    expect(screen.getByLabelText(ADDON_FIELD_LABEL)).toBeDisabled();
-    expect(screen.getByRole("button", { name: ADDON_SUBMIT })).toBeDisabled();
+    expect(screen.queryByLabelText(ADDON_FIELD_LABEL)).not.toBeInTheDocument();
     expect(host.actions).toEqual([]);
   });
 
@@ -181,9 +141,7 @@ describe("the Addons form", () => {
     const field = await submitManifest("https://example.com/bad.json");
 
     expect(await screen.findByRole("alert")).toHaveTextContent(explain(refusal));
-    expect(field, "a refusal is corrected, never retyped").toHaveValue(
-      "https://example.com/bad.json",
-    );
+    expect(field).toHaveValue("https://example.com/bad.json");
     expect(host.asked("add_addon")).toHaveLength(1);
   });
 
@@ -218,32 +176,45 @@ describe("the Addons form", () => {
   });
 });
 
-describe("the Addons register", () => {
-  test("lists the Snapshot's Addons in the Host's order, with what each offers", async () => {
-    mount({ snapshot: withAddons([SUBTITLES, CINEMETA]) });
+describe("the Addons register and details", () => {
+  test("lists Addons in Host order, toggles set_addon_enabled, and exposes no manifest URL or OFFLINE state", async () => {
+    const { host } = mount({ snapshot: withAddons([SUBTITLES, CINEMETA]) });
     await openAddons();
 
-    expect(rows().map((row) => row.getAttribute("data-addon-id"))).toEqual([
-      SUBTITLES.id,
-      CINEMETA.id,
-    ]);
+    const list = screen.getByTestId("addons-list");
+    expect(
+      Array.from(list.children).map((el) => el.getAttribute("data-testid")),
+    ).toEqual([`addon-${SUBTITLES.id}`, `addon-${CINEMETA.id}`]);
+    expect(list).not.toHaveTextContent(/manifest\.json|https?:\/\//i);
+    expect(list).not.toHaveTextContent(/offline/i);
 
-    const row = rows()[1]!;
-    expect(within(row).getByText(CINEMETA.name)).toBeInTheDocument();
-    expect(within(row).getByText(CINEMETA.version)).toBeInTheDocument();
-    expect(within(row).getByText(resourcesOf(CINEMETA))).toBeInTheDocument();
-    expect(within(row).getByText(catalogsOf(CINEMETA))).toBeInTheDocument();
+    const cinemetaSwitch = screen.getByRole("switch", {
+      name: `Use ${CINEMETA.name}`,
+    });
+    expect(cinemetaSwitch).toHaveAttribute("aria-checked", "true");
+    fireEvent.click(cinemetaSwitch);
+
+    await waitFor(() =>
+      expect(host.asked("set_addon_enabled")).toEqual([
+        { type: "set_addon_enabled", addon: CINEMETA.id, enabled: false },
+      ]),
+    );
   });
 
-  test("a Move press sends the position moveTarget names, and the ends are walls", async () => {
+  test("opening an Addon row pushes details with Manifest fields (no URL), Move up/down, and Remove", async () => {
     const { host } = mount({ snapshot: withAddons([CINEMETA, SUBTITLES]) });
     await openAddons();
 
-    const [first, last] = rows();
-    expect(within(first!).getByRole("button", { name: "Move up" })).toBeDisabled();
-    expect(within(last!).getByRole("button", { name: "Move down" })).toBeDisabled();
+    fireEvent.click(screen.getByRole("button", { name: new RegExp(CINEMETA.name) }));
 
-    fireEvent.click(within(first!).getByRole("button", { name: "Move down" }));
+    const details = await screen.findByTestId("remote-addon-details");
+    const facts = within(details).getByTestId("addon-details-facts");
+    expect(facts).toHaveTextContent(CINEMETA.version);
+    expect(facts).toHaveTextContent(CINEMETA.id);
+    expect(facts).not.toHaveTextContent(/https?:\/\//i);
+
+    expect(within(details).getByRole("button", { name: "Move up" })).toBeDisabled();
+    fireEvent.click(within(details).getByRole("button", { name: "Move down" }));
 
     await waitFor(() =>
       expect(host.asked("reorder_addon")).toEqual([
@@ -255,43 +226,55 @@ describe("the Addons register", () => {
       ]),
     );
   });
+});
 
-  test("a refused reorder draws the Host's words beside that row", async () => {
+describe("Edit mode and removing an Addon", () => {
+  test("Edit mode reorders with ArrowDown and shows a refusal beside that row", async () => {
     const refusal: ActionError = {
       kind: "invalid_position",
       position: 1,
       count: 2,
     };
-    mount({
+    const { host } = mount({
       snapshot: withAddons([CINEMETA, SUBTITLES]),
       respond: () => refusal,
     });
     await openAddons();
 
-    const [first, second] = rows();
-    fireEvent.click(within(first!).getByRole("button", { name: "Move down" }));
+    fireEvent.click(screen.getByTestId("addons-edit-toggle"));
+    const first = screen.getByTestId(`addon-${CINEMETA.id}`);
+    const second = screen.getByTestId(`addon-${SUBTITLES.id}`);
 
-    expect(await within(first!).findByRole("alert")).toHaveTextContent(explain(refusal));
-    expect(within(second!).queryByRole("alert")).toBeNull();
+    const handle = within(first).getByRole("button", {
+      name: `Move ${CINEMETA.name}`,
+    });
+    fireEvent.keyDown(handle, { key: "ArrowDown" });
+
+    expect(await within(first).findByRole("alert")).toHaveTextContent(explain(refusal));
+    expect(within(second).queryByRole("alert")).toBeNull();
+    expect(host.asked("reorder_addon")).toEqual([
+      { type: "reorder_addon", id: CINEMETA.id, position: 1 },
+    ]);
   });
-});
 
-describe("removing an Addon", () => {
-  test("asks first: cancel sends nothing, and confirm sends remove_addon once", async () => {
+  test("Remove asks first with Cancel initially focused: Cancel sends nothing, confirm sends remove_addon once", async () => {
     const { host } = mount({ snapshot: withAddons([CINEMETA]) });
     await openAddons();
 
-    fireEvent.click(screen.getByRole("button", { name: "Remove" }));
+    fireEvent.click(screen.getByTestId("addons-edit-toggle"));
+    fireEvent.click(screen.getByRole("button", { name: `Remove ${CINEMETA.name}` }));
+
     const question = await screen.findByRole("dialog", {
       name: `Remove ${CINEMETA.name}?`,
     });
-    expect(host.asked("remove_addon"), "the question sends nothing").toEqual([]);
+    expect(within(question).getByRole("button", { name: "Cancel" })).toHaveFocus();
+    expect(host.asked("remove_addon")).toEqual([]);
 
     fireEvent.click(within(question).getByRole("button", { name: "Cancel" }));
     expect(screen.queryByRole("dialog")).not.toBeInTheDocument();
     expect(host.asked("remove_addon")).toEqual([]);
 
-    fireEvent.click(screen.getByRole("button", { name: "Remove" }));
+    fireEvent.click(screen.getByRole("button", { name: `Remove ${CINEMETA.name}` }));
     const again = await screen.findByRole("dialog", {
       name: `Remove ${CINEMETA.name}?`,
     });
@@ -303,11 +286,12 @@ describe("removing an Addon", () => {
     ]);
   });
 
-  test("Back on the question cancels it, because Back pops the level", async () => {
+  test("Back on the question cancels it", async () => {
     const { host } = mount({ snapshot: withAddons([CINEMETA]) });
     await openAddons();
 
-    fireEvent.click(screen.getByRole("button", { name: "Remove" }));
+    fireEvent.click(screen.getByTestId("addons-edit-toggle"));
+    fireEvent.click(screen.getByRole("button", { name: `Remove ${CINEMETA.name}` }));
     await screen.findByRole("dialog", { name: `Remove ${CINEMETA.name}?` });
 
     fireEvent.keyDown(window, { key: "Escape" });
@@ -322,10 +306,8 @@ describe("a Host with no Addon", () => {
     mount();
     await openAddons();
 
-    expect(screen.getByTestId("remote-addons-empty")).toBeInTheDocument();
-    expect(screen.getByTestId("remote-addons-empty")).toHaveTextContent(
-      ADDONS_EMPTY.body,
-    );
-    expect(screen.queryByTestId("remote-addons-list")).not.toBeInTheDocument();
+    expect(screen.getByTestId("addons-empty")).toBeInTheDocument();
+    expect(screen.getByTestId("addons-empty")).toHaveTextContent(ADDONS_EMPTY.body);
+    expect(screen.queryByTestId("addons-list")).not.toBeInTheDocument();
   });
 });

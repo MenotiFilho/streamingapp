@@ -4,6 +4,7 @@ import {
   FOLLOW_THE_FILE_AUDIO_LINE,
   FOLLOW_THE_FILE_SUBTITLE_LINE,
 } from "../core/languages";
+import { PREFERENCE_SUB_LEVELS, type PreferenceSubLevelId } from "../core/marqueeSettings";
 import type { NewLevel } from "../core/navigation";
 import {
   CREDENTIALS_CATEGORY,
@@ -145,16 +146,17 @@ export const LANGUAGE_FOLLOW_LINES: Record<LanguageKind, string> = {
 };
 
 /**
- * The sheet a field's ▾ opens (#330, ADR-0035 §2): a level, so the phone's
- * system Back puts it away (ADR-0034). One id per list, so a second press
- * replaces it and a single Back leaves.
+ * The preference sub-level a row in Preferences pushes.
  */
-export function languageSheetLevel(kind: LanguageKind): NewLevel<RemotePayload> {
+export function preferenceSubLevel(
+  subLevel: PreferenceSubLevelId,
+): NewLevel<RemotePayload> {
+  const meta = PREFERENCE_SUB_LEVELS[subLevel];
   return {
-    id: `language-sheet-${kind}`,
-    name: LANGUAGE_GROUP_HEADS[kind],
-    kind: "popover",
-    payload: { kind: "language-sheet", list: kind },
+    id: meta.levelId,
+    name: meta.title,
+    kind: "overlay",
+    payload: { kind: "settings-pref", subLevel },
   };
 }
 

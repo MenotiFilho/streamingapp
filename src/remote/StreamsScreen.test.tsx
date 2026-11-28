@@ -1,27 +1,16 @@
-import { act, fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { act, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { useEffect, useSyncExternalStore } from "react";
 import { describe, expect, test, vi } from "vitest";
 
 import { explain } from "../core/errors";
-import type { Respond } from "./fakeHost.testing";
-import { FakeHost } from "./fakeHost.testing";
+import { streamsEmptyState } from "../core/marqueeStreams";
 import type { Session } from "../core/session";
 import { Session as SessionClass } from "../core/session";
-import { playStreamAction, unplayableNote } from "../core/stream";
+import { playStreamAction, playabilityNote } from "../core/stream";
 import type { AddonStreams, AddonManifest, Response, Snapshot, Stream, Title, Video } from "../core/wire";
+import { FakeHost, type Respond } from "./fakeHost.testing";
 import { NOTHING } from "./fakeSocket.testing";
 import { StreamsScreen } from "./StreamsScreen";
-import { STREAMS_NONE } from "./streamsScreen";
-
-/**
- * The Streams level over a fake HostLink (#210, ADR-0032, docs/agents/testing.md).
- *
- * The assertions are the level's decisions: the one `find_streams` it asks for
- * the Video it carries, the Host's group order and counts, the `play_stream`
- * one press builds through the core, the wait that disables every row, the
- * candidate this Host cannot open that sends nothing, and the unplayable mark
- * the answer settles (ADR-0020, ADR-0027).
- */
 
 const CINEMETA: AddonManifest = {
   id: "cinemeta",
@@ -89,17 +78,17 @@ const TORRENT: Stream = {
   description: null,
   playback: {
     kind: "torrent",
-    infoHash: "c12fe1c06bba254a9dc9f519b335aa7c1367a88a",
-    fileIdx: 3,
-    sources: ["tracker:udp://tracker.example.org:1337"],
+    infoHash: "0123456789abcdef0123456789abcdef01234567",
+    fileIdx: 0,
+    sources: [],
   },
   warnings: ["p2p"],
-  filename: null,
+  filename: "torrent.mkv",
   bingeGroup: null,
 };
 
 const HASH: Stream = {
-  name: "Torrentio",
+  name: "Unplayable",
   description: null,
   playback: { kind: "direct", url: "ftp://example.test/film.mkv" },
   warnings: [],
@@ -119,7 +108,6 @@ function answer(groups: AddonStreams[]): Response {
   return { snapshots: [], answer: { streams: groups } };
 }
 
-/** The screen as the room hands it: a Session over the door, and the wait it publishes. */
 function Shown({ session, onOpened }: { session: Session; onOpened?: () => void }) {
   const state = useSyncExternalStore(session.subscribe, session.getState);
   useEffect(() => session.start(), [session]);
@@ -141,7 +129,6 @@ function mount(respond: Respond) {
   return { host, session, view };
 }
 
-/** Mount the level with one answer, and wait until the ask has settled. */
 async function mountAnswered(groups: AddonStreams[]) {
   const mounted = mount(() => answer(groups));
   await waitFor(() => expect(mounted.host.asked("find_streams")).toHaveLength(1));
@@ -166,10 +153,13 @@ function deferred<T>() {
   return { promise, resolve };
 }
 
-/** The groups as drawn, in the order the level put them. */
+function rowButton(addon: string, index: number): HTMLElement {
+  return within(screen.getByTestId(`candidate-${addon}-${index}`)).getByRole("button");
+}
+
 function groupOrder(): Array<string | null> {
   return screen
-    .getAllByTestId(/^streams-group-/)
+    .getAllByTestId(/^streams-(cinemeta|torrentio)$/)
     .map((element) => element.getAttribute("data-addon"));
 }
 
@@ -189,19 +179,26 @@ describe("the Streams level's one question", () => {
     expect(host.asked("find_streams")).toHaveLength(1);
   });
 
-  test("groups in the Host's order", async () => {
+  test("groups in the Host's order and supports Addon filter chips", async () => {
     await mountAnswered([
       group("torrentio", [DIRECT, { ...DIRECT, filename: "second.mkv" }]),
       group("cinemeta", [OTHER]),
     ]);
 
     expect(groupOrder()).toEqual(["torrentio", "cinemeta"]);
+
+    fireEvent.click(screen.getByTestId("streams-filter-cinemeta"));
+    expect(screen.queryByTestId("streams-torrentio")).not.toBeInTheDocument();
+    expect(screen.getByTestId("streams-cinemeta")).toBeInTheDocument();
   });
 
-  test("no group at all names the empty list, and marks the Title unplayable", async () => {
+  test("no group at all draws the empty state and marks the Title unplayable", async () => {
     const { session } = await mountAnswered([]);
+    const empty = streamsEmptyState([]);
 
-    expect(screen.getByRole("status")).toHaveTextContent(STREAMS_NONE);
+    const none = screen.getByTestId("streams-none");
+    expect(none).toHaveTextContent(empty!.title);
+    expect(none).toHaveTextContent(empty!.body);
     expect(session.getState().unplayable.has(TITLE.id)).toBe(true);
   });
 });
@@ -212,9 +209,9 @@ describe("choosing a candidate", () => {
     const { host } = mount((action) =>
       action.type === "find_streams" ? answer([group("torrentio", [DIRECT])]) : held.promise,
     );
-    await screen.findByTestId("stream-torrentio-0");
+    await screen.findByTestId("candidate-torrentio-0");
 
-    fireEvent.click(screen.getByTestId("stream-torrentio-0"));
+    fireEvent.click(rowButton("torrentio", 0));
 
     await waitFor(() => expect(host.asked("play_stream")).toHaveLength(1));
     expect(host.asked("play_stream")).toEqual([
@@ -234,20 +231,14 @@ describe("choosing a candidate", () => {
     );
     const session = new SessionClass(host);
     render(<Shown session={session} onOpened={onOpened} />);
-    await screen.findByTestId("stream-torrentio-0");
+    await screen.findByTestId("candidate-torrentio-0");
 
-    fireEvent.click(screen.getByTestId("stream-torrentio-0"));
+    fireEvent.click(rowButton("torrentio", 0));
     await waitFor(() => expect(onOpened).toHaveBeenCalledOnce());
 
-    // A refusal leaves the list where it is: the person still has candidates
-    // to choose from, and a card of nothing is not the player.
     refused = true;
-    fireEvent.click(screen.getByTestId("stream-torrentio-0"));
-    await waitFor(() =>
-      expect(screen.getByTestId("stream-torrentio-0")).not.toHaveAttribute(
-        "aria-busy",
-      ),
-    );
+    fireEvent.click(rowButton("torrentio", 0));
+    await waitFor(() => expect(rowButton("torrentio", 0)).not.toBeDisabled());
     expect(onOpened).toHaveBeenCalledOnce();
   });
 
@@ -258,17 +249,14 @@ describe("choosing a candidate", () => {
         ? answer([group("torrentio", [DIRECT, OTHER])])
         : held.promise,
     );
-    await screen.findByTestId("stream-torrentio-1");
+    await screen.findByTestId("candidate-torrentio-1");
 
-    fireEvent.click(screen.getByTestId("stream-torrentio-0"));
+    fireEvent.click(rowButton("torrentio", 0));
     await waitFor(() => expect(host.asked("play_stream")).toHaveLength(1));
 
-    expect(
-      screen.getByTestId("stream-torrentio-0"),
-      "the pressed row is the one that says it is waiting",
-    ).toHaveAttribute("aria-busy", "true");
-    expect(screen.getByTestId("stream-torrentio-1")).toBeDisabled();
-    fireEvent.click(screen.getByTestId("stream-torrentio-1"));
+    expect(rowButton("torrentio", 0)).toBeDisabled();
+    expect(rowButton("torrentio", 1)).toBeDisabled();
+    fireEvent.click(rowButton("torrentio", 1));
     await flush();
     expect(host.asked("play_stream")).toHaveLength(1);
 
@@ -276,37 +264,38 @@ describe("choosing a candidate", () => {
       held.resolve({ snapshots: [], answer: null });
       await Promise.resolve();
     });
-    await waitFor(() => expect(screen.getByTestId("stream-torrentio-1")).not.toBeDisabled());
+    await waitFor(() => expect(rowButton("torrentio", 1)).not.toBeDisabled());
 
-    // The wait is the Session's, and it is over: a different candidate is a
-    // different Action and is sent as one.
-    fireEvent.click(screen.getByTestId("stream-torrentio-1"));
+    fireEvent.click(rowButton("torrentio", 1));
     await waitFor(() => expect(host.asked("play_stream")).toHaveLength(2));
   });
 
-  test("a candidate this Host cannot open sends nothing and draws its note", async () => {
+  test("a candidate this Host cannot open is disabled, sends nothing, and draws its unplayable badge", async () => {
     const { host } = await mountAnswered([group("torrentio", [HASH])]);
 
-    fireEvent.click(screen.getByTestId("stream-torrentio-0"));
+    const btn = rowButton("torrentio", 0);
+    expect(btn).toBeDisabled();
+    fireEvent.click(btn);
     await flush();
 
     expect(host.asked("play_stream")).toEqual([]);
-    expect(screen.getByRole("status")).toHaveTextContent(unplayableNote(HASH));
+    const badge = screen.getByTestId("stream-unplayable");
+    expect(badge).toHaveAttribute("aria-label", playabilityNote(HASH.playback)!);
   });
 });
 
 describe("a torrent candidate", () => {
-  test("is playable: one press sends the whole shape, and no note is drawn", async () => {
+  test("is playable: one press sends the whole shape, and no unplayable badge is drawn", async () => {
     const { host } = await mountAnswered([group("torrentio", [TORRENT])]);
 
-    fireEvent.click(screen.getByTestId("stream-torrentio-0"));
+    fireEvent.click(rowButton("torrentio", 0));
 
     await waitFor(() => expect(host.asked("play_stream")).toHaveLength(1));
     expect(host.asked("play_stream")).toEqual([
       playStreamAction(TITLE, VIDEO, "torrentio", TORRENT),
     ]);
     expect(host.asked("play_stream")[0]).toMatchObject({ stream: TORRENT });
-    expect(screen.queryByText(/Not playable/)).toBeNull();
+    expect(screen.queryByTestId("stream-unplayable")).toBeNull();
   });
 });
 
@@ -325,19 +314,30 @@ describe("the mark an answer settles", () => {
     const session = new SessionClass(host);
     session.markUnplayable(TITLE.id, true);
     render(<Shown session={session} />);
-    await screen.findByTestId("stream-torrentio-0");
+    await screen.findByTestId("candidate-torrentio-0");
 
     expect(session.getState().unplayable.has(TITLE.id)).toBe(false);
   });
 
-  test("a failed Addon proves nothing, so the mark is left alone and its refusal is the Host's words", async () => {
+  test("a failed Addon proves nothing, leaves the mark alone, and offers Try again", async () => {
     const failure = { kind: "fetch", detail: "timeout" } as const;
-    const { session } = await mountAnswered([
-      group("cinemeta", [], failure),
-      group("torrentio"),
-    ]);
+    let attempt = 0;
+    const host = new FakeHost(SNAPSHOT, () => {
+      attempt += 1;
+      return attempt === 1
+        ? answer([group("cinemeta", [], failure), group("torrentio")])
+        : answer([group("cinemeta", [OTHER]), group("torrentio")]);
+    });
+    const session = new SessionClass(host);
+    render(<Shown session={session} />);
 
+    const cinemetaGroup = await screen.findByTestId("streams-cinemeta");
+    expect(within(cinemetaGroup).getByRole("status")).toHaveTextContent(
+      explain(failure),
+    );
     expect(session.getState().unplayable.has(TITLE.id)).toBe(false);
-    expect(screen.getByRole("alert")).toHaveTextContent(explain(failure));
+
+    fireEvent.click(screen.getByRole("button", { name: "Try again" }));
+    expect(await screen.findByTestId("candidate-cinemeta-0")).toBeInTheDocument();
   });
 });

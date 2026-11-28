@@ -8,18 +8,30 @@ export type PhonePosterProps = {
   progress?: number | null;
   /** Draw the pressed state without a finger on it, for a still of the sheet. */
   pressed?: boolean;
+  disabled?: boolean;
+  testId?: string;
   onPress: () => void;
 };
 
 /** A 116×174 poster; a pressed card darkens under the finger (sheet `C8`). */
-export function PhonePoster({ name, poster, progress, pressed = false, onPress }: PhonePosterProps) {
+export function PhonePoster({
+  name,
+  poster,
+  progress,
+  pressed = false,
+  disabled = false,
+  testId,
+  onPress,
+}: PhonePosterProps) {
   return (
     <button
       type="button"
       className="mq-ph mq-ph-poster mq-focus-art"
       data-focusable
       data-pressed={pressed || undefined}
+      data-testid={testId}
       aria-label={name}
+      disabled={disabled}
       onClick={onPress}
     >
       <span className="mq-ph-card-frame mq-art-frame">

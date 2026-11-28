@@ -1,108 +1,55 @@
-import { useEffect, useRef, useState, type ReactNode } from "react";
+import { useState } from "react";
 
 import { explain, type ActionError } from "../core/errors";
-import type { LanguageKind } from "../core/languageList";
 import type { Level, NewLevel } from "../core/navigation";
+import type { PreferenceSubLevelId } from "../core/marqueeSettings";
 import type { Session, SessionState } from "../core/session";
 import type { SettingsCategoryId } from "../core/settingsRegister";
-import type { Action, MetaPreview, Title, Video } from "../core/wire";
+import type { Action, Title, Video } from "../core/wire";
 import { Button } from "../kit/Button";
-import { ConfirmDialog } from "../kit/ConfirmDialog";
-import type { GridPayload } from "./grid";
-import { RemoteGrid } from "./RemoteGrid";
+import { Confirm } from "../kit/marquee/Confirm";
+import { AddonDetails } from "./Addons";
 import { PlayerCard } from "./Player";
 import { PlayerSheets } from "./PlayerSheets";
-import type { RemoteSheet } from "./playerSheets";
-import { playerLevel, playerLevelStale, type RemotePlayer } from "./playerScreen";
-import { LanguageSheet } from "./LanguageSheet";
-import { SettingsLeaf } from "./Settings";
-import { streamsLevelFor } from "./titleScreen";
+import { RemoteGrid } from "./RemoteGrid";
+import { PreferenceSubLevel, SettingsLeaf } from "./Settings";
 import { StreamsScreen } from "./StreamsScreen";
 import { TitleScreen } from "./TitleScreen";
+import type { GridPayload } from "./grid";
+import { playerLevel, type RemotePlayer } from "./playerScreen";
+import type { RemoteSheet } from "./playerSheets";
+import { streamsLevelFor } from "./titleScreen";
 
-/**
- * What a level on the Remote's stack carries (ADR-0035 §1).
- *
- * The stack is the core's; the payload is this client's. A Title a card opened
- * carries the card's identity so the Title screen can ask the Host the question
- * its card names, and the answer it gets is kept on the same level.
- *
- * The Addon travels with it because that is what `open_title` asks by, and a
- * card knows which Addon answered its row. `addon: null` is the other case: a
- * Discovered Title, which TMDB named before any Addon did — a Discover card and
- * a keyed Search hit carry no Addon, and the Title screen opens those against
- * TMDB (#207, ADR-0020).
- */
 export type RemoteTitle = {
-  /** The Addon whose Catalog answered, or null for a Discovered Title. */
   addon: string | null;
   id: string;
   type: string;
   name: string;
 };
 
-/**
- * One destructive question, as a level carries it: the words a person reads
- * and the one Action its confirming answer takes.
- *
- * It is data and never a closure, so the level stack stays the core's and a
- * confirmation is a kind the client draws rather than a function the client
- * smuggles onto the stack (#209).
- */
 export type RemoteConfirm = {
-  /** The level's id and the dialog's test id, so a second press replaces the question. */
   id: string;
-  /** What the question asks, read as the dialog's name. */
   title: string;
-  /** The consequence under the title. */
   body: string;
-  /** The confirming control's label: `Remove`. */
   confirmLabel: string;
-  /** The Action the confirming control takes. */
   action: Action;
 };
 
-/**
- * One level's contents, as the Remote holds them.
- *
- * A Title carries the card's identity and, once the Host has answered, the
- * Title itself: the level is re-pushed with its answer so a Streams level above
- * it and a Back do not ask the Host a second time. A Streams level carries the
- * answered Title and the one Video whose candidates it lists. A Settings level
- * carries the register id of the category it draws (#211). A Player level is the
- * one expanded card (#213) and a Sheet level is one of its plates above the card
- * (#214).
- */
 export type RemotePayload =
   | { kind: "title"; title: RemoteTitle; answer: Title | null }
   | { kind: "streams"; title: Title; video: Video }
+  | { kind: "addon-details"; addonId: string }
   | { kind: "settings"; category: SettingsCategoryId }
+  | { kind: "settings-pref"; subLevel: PreferenceSubLevelId }
   | { kind: "confirm"; confirm: RemoteConfirm }
   | GridPayload
   | RemotePlayer
-  | RemoteSheet
-  | RemoteLanguageSheet;
+  | RemoteSheet;
 
-/** A language list's sheet, opened from its field's ▾ over Preferences (#330). */
-export type RemoteLanguageSheet = { kind: "language-sheet"; list: LanguageKind };
-
-/**
- * Whether a level is a sheet over the screen under it: a player plate or a
- * language list. The room keeps the screen under it drawn and inert, so a Back
- * puts the plate away and what was beneath is exactly as it was.
- */
 export function isSheetPayload(payload: RemotePayload): boolean {
-  return payload.kind === "sheet" || payload.kind === "language-sheet";
+  return payload.kind === "sheet" || payload.kind === "confirm";
 }
 
-/**
- * The Title a level already holds, or null where it holds none.
- *
- * A Title level carries the answer it was given, a Streams level the Title it
- * was opened from, and a player and its sheet the Title they were handed. This
- * is the one reading a strip uses to put the Title in the player level, so an
- * Episodes plate never asks the Host again for facts the client already holds.
- */
 export function levelTitle(payload: RemotePayload): Title | null {
   switch (payload.kind) {
     case "title":
@@ -117,7 +64,6 @@ export function levelTitle(payload: RemotePayload): Title | null {
   }
 }
 
-/** The nearest Title the stack holds, from the top down. */
 export function heldTitle(
   levels: ReadonlyArray<Level<RemotePayload>>,
 ): Title | null {
@@ -130,12 +76,6 @@ export function heldTitle(
   return null;
 }
 
-/**
- * The level a press on a card pushes: an overlay above the destination, named
- * as the window names it. A Continue watching card pushes the same level,
- * because what it opens is the Title; resuming the Host's Video is B8 and B9's.
- * It is pushed unanswered, which is what makes the screen ask.
- */
 export function titleLevel(title: RemoteTitle): NewLevel<RemotePayload> {
   return {
     name: "Title",
@@ -144,79 +84,61 @@ export function titleLevel(title: RemoteTitle): NewLevel<RemotePayload> {
   };
 }
 
-/**
- * The same level, from the card that was pressed: its identity, and the Addon
- * that answered where one did. A Discover or keyed-Search card names no Addon,
- * because TMDB named the Title before any Addon did (#207).
- */
 export function titleLevelOf(
   addon: string | null,
-  meta: Pick<MetaPreview, "id" | "type" | "name">,
+  meta: { id: string; type: string; name: string },
 ): NewLevel<RemotePayload> {
   return titleLevel({ addon, id: meta.id, type: meta.type, name: meta.name });
 }
 
-/**
- * The top level, drawn. A Title is its own screen (B6), a Streams list is the
- * level a Play pushes (B6), a Settings category is its leaf (#211), and a
- * confirmation is the kit's `ConfirmDialog`, because asking before removing an
- * Addon is a question and not a screen (#209).
- */
 export function RemoteLevel({
   level,
   session,
   state,
+  deviceId = null,
   push,
   pop,
 }: {
   level: Level<RemotePayload>;
-  /** The Session the level's questions are taken through. */
   session: Session;
-  /** What the Host last published: the Addons a Streams group is named by. */
   state: SessionState;
-  /** Push a level, which is how a Play opens the Streams list. */
+  deviceId?: string | null;
   push: (level: NewLevel<RemotePayload>) => string;
-  /** Pop this level: Back, Cancel, and what a successful confirmation does. */
   pop: () => void;
 }) {
-  switch (level.payload.kind) {
+  const { payload } = level;
+
+  switch (payload.kind) {
     case "title":
       return (
-        <LevelPage onBack={pop}>
-          <TitleScreen
-            levelId={level.id}
-            card={level.payload.title}
-            answer={level.payload.answer}
-            session={session}
-            state={state}
-            push={push}
-          />
-        </LevelPage>
+        <TitleScreen
+          levelId={level.id}
+          card={payload.title}
+          answer={payload.answer}
+          session={session}
+          state={state}
+          push={push}
+          pop={pop}
+        />
       );
-    case "streams": {
-      const title = level.payload.title;
+    case "streams":
       return (
-        <LevelPage onBack={pop}>
-          <StreamsScreen
-            title={title}
-            video={level.payload.video}
-            session={session}
-            state={state}
-            onOpened={() => {
-              // The list is spent once the Host has the Stream: putting it away
-              // and opening the card leaves one Back for the Title, which is
-              // where a person picks something else to watch (#215).
-              pop();
-              push(playerLevel(title));
-            }}
-          />
-        </LevelPage>
+        <StreamsScreen
+          title={payload.title}
+          video={payload.video}
+          session={session}
+          state={state}
+          pop={pop}
+          onOpened={() => {
+            pop();
+            push(playerLevel(payload.title));
+          }}
+        />
       );
-    }
-    case "grid":
+    case "addon-details":
       return (
-        <RemoteGrid
-          grid={level.payload.grid}
+        <AddonDetails
+          addonId={payload.addonId}
           session={session}
           state={state}
           push={push}
@@ -225,100 +147,77 @@ export function RemoteLevel({
       );
     case "settings":
       return (
-        <LevelPage onBack={pop}>
-          <SettingsLeaf
-            category={level.payload.category}
-            session={session}
-            state={state}
-            push={push}
-          />
-        </LevelPage>
-      );
-    case "player":
-      // A card of a Stream the Host has stopped is no card. The room pops the
-      // level in the same pass; this only keeps the bare frame from painting.
-      return playerLevelStale(
-        level.payload,
-        state.snapshot?.playback?.state ?? "idle",
-      ) ? null : (
-        <LevelPage onBack={pop}>
-          <PlayerCard
-            session={session}
-            title={level.payload.title}
-            push={push}
-          />
-        </LevelPage>
-      );
-    case "sheet":
-      // The plate is furniture above the card: the room draws the card under
-      // it, and Back pops only this level.
-      return (
-        <PlayerSheets
-          plate={level.payload.plate}
-          title={level.payload.title}
+        <SettingsLeaf
+          category={payload.category}
           session={session}
           state={state}
-          onClose={pop}
-          onEpisode={(title, video) => {
-            // The sheet is furniture over the card, and the Streams list is a
-            // screen: putting the plate away first keeps the stack the one the
-            // Title's Play builds, so one Back leaves the list for the card.
-            pop();
-            push(streamsLevelFor(title, video));
-          }}
+          deviceId={deviceId}
+          push={push}
+          pop={pop}
         />
       );
-    case "language-sheet":
+    case "settings-pref":
       return (
-        <LanguageSheet
-          kind={level.payload.list}
+        <PreferenceSubLevel
+          subLevel={payload.subLevel}
           session={session}
           state={state}
-          onClose={pop}
+          pop={pop}
+        />
+      );
+    case "grid":
+      return (
+        <RemoteGrid
+          grid={payload.grid}
+          session={session}
+          state={state}
+          push={push}
+          pop={pop}
         />
       );
     case "confirm":
       return (
         <ConfirmLevel
-          confirm={level.payload.confirm}
+          confirm={payload.confirm}
           session={session}
           pop={pop}
+        />
+      );
+    case "player":
+      return (
+        <div className="remote-level">
+          <div className="remote-level-page">
+            <div className="remote-level-head">
+              <Button variant="ghost" onClick={pop}>
+                Back
+              </Button>
+              <span className="remote-level-rule" aria-hidden="true" />
+            </div>
+            <PlayerCard
+              title={payload.title}
+              session={session}
+              push={push}
+            />
+          </div>
+        </div>
+      );
+    case "sheet":
+      return (
+        <PlayerSheets
+          plate={payload.plate}
+          title={payload.title}
+          session={session}
+          state={state}
+          onClose={pop}
+          onEpisode={(title, video) => {
+            pop();
+            push(streamsLevelFor(title, video));
+          }}
         />
       );
   }
 }
 
-/**
- * The frame a Title and a Streams level are drawn in: the room's Back control
- * at the top of the page, a hairline to the edge, and the level under it. Back
- * is the room's (ADR-0035 §1) — the level says only what it is.
- */
-function LevelPage({
-  onBack,
-  children,
-}: {
-  onBack: () => void;
-  children: ReactNode;
-}) {
-  return (
-    <div className="remote-level-page">
-      <header className="remote-level-head">
-        <Button variant="ghost" className="remote-level-back" onClick={onBack}>
-          Back
-        </Button>
-        <span className="remote-level-rule" aria-hidden="true" />
-      </header>
-      {children}
-    </div>
-  );
-}
-
-/**
- * One destructive question. Cancel pops it and dispatches nothing; the
- * confirming answer takes its Action through the Session and then pops it. A
- * refusal keeps the question open with the Host's own words, because the
- * question is still the one a person is answering.
- */
 function ConfirmLevel({
   confirm,
   session,
@@ -329,55 +228,44 @@ function ConfirmLevel({
   pop: () => void;
 }) {
   const [error, setError] = useState<ActionError | null>(null);
-  const [working, setWorking] = useState(false);
-  // A person can pop the level while the Host is still answering. The answer
-  // then belongs to a question that is no longer on screen, and must not pop
-  // whatever is on top now.
-  const open = useRef(true);
-
-  useEffect(
-    () => () => {
-      open.current = false;
-    },
-    [],
-  );
+  const [pending, setPending] = useState(false);
 
   const answer = async () => {
-    if (working) {
+    if (pending) {
       return;
     }
     setError(null);
-    setWorking(true);
+    setPending(true);
     const outcome = await session.ask(confirm.action);
-    setWorking(false);
+    setPending(false);
     if (outcome.error) {
-      if (open.current) {
-        setError(outcome.error);
-      }
+      setError(outcome.error);
       return;
     }
-    if (open.current) {
-      pop();
-    }
+    pop();
   };
 
   return (
-    <ConfirmDialog
-      title={confirm.title}
-      confirmLabel={confirm.confirmLabel}
-      danger
-      pending={working}
-      onConfirm={() => void answer()}
-      onCancel={pop}
-      testId={confirm.id}
-    >
-      <p>{confirm.body}</p>
-      {error ? (
-        <p role="alert" className="remote-refusal">
-          {explain(error)}
-        </p>
-      ) : null}
-    </ConfirmDialog>
+    <div data-testid={confirm.id}>
+      <Confirm
+        title={confirm.title}
+        body={
+          <>
+            <p>{confirm.body}</p>
+            {error ? (
+              <p role="alert" className="mq-remote-inline-error">
+                {explain(error)}
+              </p>
+            ) : null}
+          </>
+        }
+        confirmLabel={confirm.confirmLabel}
+        cancelLabel="Cancel"
+        danger
+        pending={pending}
+        onConfirm={() => void answer()}
+        onCancel={pop}
+      />
+    </div>
   );
 }
-

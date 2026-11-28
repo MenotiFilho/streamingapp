@@ -16,7 +16,7 @@ import {
   featuredRequest,
   LANGUAGE_FOLLOW_LINES,
   LANGUAGE_GROUP_HEADS,
-  languageSheetLevel,
+  preferenceSubLevel,
   LONG_PRESS_MS,
   LONG_PRESS_SLOP,
   pressVerdict,
@@ -200,15 +200,20 @@ describe("the long-press that starts a chip's drag", () => {
   });
 });
 
-describe("the sheet a field's ▾ opens", () => {
-  test("is one level per list, so a second press replaces it and one Back leaves", () => {
-    const subtitle = languageSheetLevel("subtitle");
-    const audio = languageSheetLevel("audio");
+describe("preference sub-levels opened from Preferences", () => {
+  test("each sub-level has its own stable id and payload", () => {
+    const subtitle = preferenceSubLevel("subtitle-languages");
+    const audio = preferenceSubLevel("audio-languages");
     expect(subtitle.id).not.toBe(audio.id);
-    expect(languageSheetLevel("subtitle").id).toBe(subtitle.id);
-    expect(subtitle.name).toBe(LANGUAGE_GROUP_HEADS.subtitle);
-    expect(subtitle.payload).toEqual({ kind: "language-sheet", list: "subtitle" });
-    expect(audio.payload).toEqual({ kind: "language-sheet", list: "audio" });
+    expect(preferenceSubLevel("subtitle-languages").id).toBe(subtitle.id);
+    expect(subtitle.payload).toEqual({
+      kind: "settings-pref",
+      subLevel: "subtitle-languages",
+    });
+    expect(audio.payload).toEqual({
+      kind: "settings-pref",
+      subLevel: "audio-languages",
+    });
   });
 
   test("an empty list says what following the file means for each list", () => {

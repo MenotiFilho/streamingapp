@@ -1,5 +1,6 @@
 import { fireEvent, render, screen, waitFor } from "@testing-library/react";
-import { describe, expect, test } from "vitest";
+import { MotionGlobalConfig } from "motion/react";
+import { afterAll, beforeAll, describe, expect, test } from "vitest";
 
 import { explain } from "../core/errors";
 import type { HostLink } from "../core/link";
@@ -50,8 +51,17 @@ function openLink(paired: boolean) {
  * through the same `aria-pressed` the kit gives every toggle: a test reads that
  * rather than the copy of the screen the destination happens to be drawn with.
  */
+let previousSkipAnimations: boolean | undefined;
+beforeAll(() => {
+  previousSkipAnimations = MotionGlobalConfig.skipAnimations;
+  MotionGlobalConfig.skipAnimations = true;
+});
+afterAll(() => {
+  MotionGlobalConfig.skipAnimations = previousSkipAnimations;
+});
+
 function pressed(label: string): boolean {
-  return screen.getByRole("button", { name: label }).getAttribute("aria-pressed") === "true";
+  return screen.getByRole("button", { name: label }).getAttribute("aria-current") === "page";
 }
 
 describe("the Remote's app", () => {
@@ -60,10 +70,8 @@ describe("the Remote's app", () => {
     const view = render(<RemoteApp link={link} />);
     try {
       const code = await screen.findByLabelText("Pairing code");
+      expect(screen.getByTestId("pairing-host")).toBeInTheDocument();
       fireEvent.change(code, { target: { value: PAIRING_CODE } });
-      fireEvent.change(screen.getByLabelText("Device name"), {
-        target: { value: "Phone" },
-      });
       fireEvent.click(screen.getByRole("button", { name: "Pair" }));
 
       await waitFor(() =>

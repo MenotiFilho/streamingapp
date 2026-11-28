@@ -1,1997 +1,64 @@
 /*
- * The served Remote's sheet (ADR-0035 §2).
+ * The served Remote's sheet (ADR-0035 §2, Marquee design-system §11).
  *
- * It imports the kit's own sheet, which imports the token sheet, so the palette,
- * the families and the primitives are the window's by construction. What is
- * added here is the Remote's scale: the same role names re-mapped to the hand
- * values in `tokens.css`, and a layout that puts the six destinations at the
- * bottom of a phone rather than a rail down the side of a television.
+ * `playerLegacy.css` keeps the temporary Repertory styles for the untouched
+ * #364 Player & PlayerSheets surfaces until Wave 3b lands. After it, Marquee
+ * tokens, base roles, shared controls/forms, and the phone kit (`C8`) style
+ * everything under `.mq-root.mq-remote-root` at the 390×844 hand scale.
  */
 
-@import "../kit/kit.css";
-
-:root {
-  --rep-text-hero: var(--rep-remote-text-hero);
-  --rep-text-title: var(--rep-remote-text-title);
-  --rep-text-section: var(--rep-remote-text-section);
-  --rep-text-body: var(--rep-remote-text-body);
-  --rep-text-control: var(--rep-remote-text-control);
-  --rep-text-caption: var(--rep-remote-text-caption);
-  --rep-text-mono: var(--rep-remote-text-mono);
-  --rep-text-badge: var(--rep-remote-text-badge);
-  --rep-gutter: var(--rep-remote-gutter);
-}
+@import "./playerLegacy.css";
+@import "../kit/marquee/tokens.css";
+@import "../kit/marquee/base.css";
+@import "../kit/marquee/controls-nav-cards.css";
+@import "../kit/marquee/panels-player.css";
+@import "../kit/marquee/forms-lists.css";
+@import "../kit/marquee/phone/phone.css";
 
 html,
 body {
   margin: 0;
   min-height: 100%;
-  background: var(--rep-ink);
-  color: var(--rep-ivory);
-  font-family: var(--rep-sans);
+  background: var(--mq-canvas);
+  color: var(--mq-text);
+  font-family: var(--mq-font);
   -webkit-text-size-adjust: 100%;
 }
 
-body {
-  min-height: 100dvh;
-}
-
+body,
 #root {
   min-height: 100dvh;
 }
 
 /* --------------------------------------------------------------------------
- * The room: a header, the destination, the index
+ * Hand-scale token remapping (390×844): shared kit primitives read `--mq-*`
+ * so setting `--mq-u: 1px` and phone role tokens scales them cleanly to hand
+ * proportions without editing the shared kit stylesheet.
  * -------------------------------------------------------------------------- */
 
-.remote-ui {
-  display: grid;
-  /* One column, and no more than the phone's width. Without this the implicit
-     `auto` column sizes to the widest rail's max-content — a row of twenty
-     posters — and every screen becomes a page the width of the whole row, with
-     the feature and the rails stretched to match. The rows still say header,
-     body, index; the column is what keeps the page a phone. */
-  grid-template-columns: minmax(0, 1fr);
-  grid-template-rows: auto 1fr auto;
+.mq-root.mq-remote-root {
+  --mq-u: 1px;
+  --mq-text-display: 28px;
+  --mq-text-screen-title: 28px;
+  --mq-text-heading: 22px;
+  --mq-text-level-title: 17px;
+  --mq-text-row-head: 20px;
+  --mq-text-body: 15px;
+  --mq-text-control: 15px;
+  --mq-text-label: 14px;
+  --mq-text-label-sm: 13px;
+  --mq-text-caption: 13px;
+  --mq-text-caption-sm: 12px;
+  --mq-text-overline: 11px;
+  --mq-text-badge: 11px;
+  --mq-leading-body: 20px;
+  --mq-ph-home-inset: max(10px, env(safe-area-inset-bottom, 0px));
   min-height: 100dvh;
-  padding-top: env(safe-area-inset-top);
+  background: var(--mq-canvas);
+  color: var(--mq-text);
 }
 
-.remote-status {
-  display: flex;
-  align-items: baseline;
-  justify-content: space-between;
-  gap: var(--rep-space-3);
-  padding: var(--rep-space-3) var(--rep-remote-gutter);
-  border-bottom: 1px solid var(--rep-hairline);
-  font-family: var(--rep-mono);
-  font-size: var(--rep-remote-text-mono);
-  letter-spacing: var(--rep-tracking-caps);
-  text-transform: uppercase;
-  color: var(--rep-muted);
-}
-
-/* A device name is what a person typed when it paired, so it is the one line in
-   the bar that can be long: it gives way to the connection state. */
-.remote-status > * {
-  min-width: 0;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-
-.remote-connection[data-live="true"] {
-  color: var(--rep-house);
-}
-
-.remote-main {
-  padding: var(--rep-space-5) var(--rep-remote-gutter);
-}
-
-/* --------------------------------------------------------------------------
- * The page rule (ADR-0036 §3): a fitted screen fills the phone's viewport and
- * never scrolls it. The screen's own panel is the one scrollport; Home and the
- * utility register keep a scrolling page.
- * -------------------------------------------------------------------------- */
-
-.remote-ui[data-page="fitted"] {
-  height: 100vh;
-  height: 100dvh;
-  overflow: hidden;
-  box-sizing: border-box;
-}
-
-.remote-ui[data-page="fitted"] .remote-main {
-  display: flex;
-  flex-direction: column;
-  min-height: 0;
-  overflow: hidden;
-}
-
-.remote-ui[data-page="fitted"] .remote-main > .remote-discover,
-.remote-ui[data-page="fitted"] .remote-main > .remote-search,
-.remote-ui[data-page="fitted"] .remote-main > .remote-level-page {
-  flex: 1;
-  min-height: 0;
-}
-
-.remote-ui[data-page="fitted"] .remote-discover,
-.remote-ui[data-page="fitted"] .remote-search {
-  overflow: hidden;
-}
-
-.remote-page-panel {
-  display: flex;
-  flex-direction: column;
-  gap: var(--rep-space-5);
-  min-width: 0;
-}
-
-/* The feed's own panel: Discover's and Search's rows move under a fixed head
- * and chips, and the page does not. */
-.remote-ui[data-page="fitted"][data-panel="rows"] .remote-discover > .remote-page-panel,
-.remote-ui[data-page="fitted"][data-panel="rows"] .remote-search > .remote-page-panel {
-  flex: 1;
-  min-height: 0;
-  overflow-y: auto;
-  overscroll-behavior-y: contain;
-  -webkit-overflow-scrolling: touch;
-  scrollbar-width: thin;
-}
-
-/* The Title is one page, and on the Remote its body is the one scrollport. A
- * phone cannot hold the copy and the episode list side by side, so everything
- * under the fixed Back — the copy, the seasons, the episodes and Find Streams —
- * scrolls together; the episode list is normal flow here, not a nested
- * scrollport (ADR-0036 §3, amended 2026-11-07, owner's report). */
-.remote-ui[data-page="fitted"] .remote-level-page {
-  overflow: hidden;
-}
-
-.remote-ui[data-page="fitted"][data-panel="body"] .remote-title-level {
-  display: flex;
-  flex: 1;
-  flex-direction: column;
-  min-height: 0;
-  overflow-y: auto;
-  overscroll-behavior-y: contain;
-  -webkit-overflow-scrolling: touch;
-  scrollbar-width: thin;
-}
-
-/* The Title is sized by its content inside the body's scrollport, so no part of
- * it is asked to share a height the phone does not have. */
-.remote-ui[data-page="fitted"][data-panel="body"] .remote-title {
-  flex: none;
-}
-
-/* The player card is one screen: the controls are laid out to fit, and only a
- * viewport shorter than the card scrolls the card itself. */
-.remote-ui[data-page="fitted"][data-panel="card"] .remote-level-page > .remote-player-card {
-  flex: 1;
-  min-height: 0;
-  overflow-y: auto;
-  overscroll-behavior-y: contain;
-  -webkit-overflow-scrolling: touch;
-  scrollbar-width: thin;
-}
-
-.remote-destination-title {
-  margin: 0 0 var(--rep-space-3);
-  font-family: var(--rep-display);
-  font-size: var(--rep-remote-text-hero);
-  font-weight: 400;
-  line-height: var(--rep-leading-display);
-  letter-spacing: var(--rep-tracking-display);
-  color: var(--rep-ivory);
-}
-
-.remote-destination-note {
-  margin: 0 0 var(--rep-space-4);
-  max-width: 34rem;
-  font-size: var(--rep-remote-text-body);
-  line-height: var(--rep-leading-body);
-  color: var(--rep-dim);
-}
-
-.remote-destination-wait {
-  margin: 0;
-  font-family: var(--rep-mono);
-  font-size: var(--rep-remote-text-mono);
-  letter-spacing: var(--rep-tracking-caps);
-  text-transform: uppercase;
-  color: var(--rep-muted);
-}
-
-/* --------------------------------------------------------------------------
- * The index: six destinations along the bottom, 44px targets
- * -------------------------------------------------------------------------- */
-
-/* The dock is the phone's furniture, not the page's last line: the index and
-   the player's strip stay on the screen while a long destination scrolls under
-   them, and the page's own colour is behind them so a card never reads through. */
-.remote-dock {
-  position: sticky;
-  bottom: 0;
-  z-index: 3;
-  display: grid;
-  grid-template-columns: minmax(0, 1fr);
-  background: var(--rep-ink);
-}
-
-.remote-index {
-  display: grid;
-  grid-template-columns: repeat(6, minmax(0, 1fr));
-  align-items: stretch;
-  min-height: var(--rep-remote-nav);
-  border-top: 1px solid var(--rep-hairline);
-  background: var(--rep-ink);
-  /* The keyline is drawn outside the control, so the index keeps room below it:
-     at the viewport's edge the ring around the bottom row is cropped to three
-     sides. The safe-area inset stays on top of that room. */
-  padding-bottom: calc(env(safe-area-inset-bottom) + var(--rep-space-2));
-}
-
-.remote-index .rep-kit-button {
-  justify-content: center;
-  min-height: var(--rep-remote-touch);
-  padding: var(--rep-space-2) var(--rep-space-1);
-  border: 0;
-  border-top: 2px solid transparent;
-  font-size: var(--rep-remote-text-caption);
-  text-align: center;
-  color: var(--rep-dim);
-}
-
-.remote-index .rep-kit-button[aria-pressed="true"] {
-  border-top-color: var(--rep-house);
-  color: var(--rep-ivory);
-}
-
-/* --------------------------------------------------------------------------
- * The pairing gate, and the one refusal a person can be shown here
- * -------------------------------------------------------------------------- */
-
-.remote-pairing,
-.remote-notice {
-  display: grid;
-  gap: var(--rep-space-4);
-  align-content: start;
-  max-width: 30rem;
-  margin: 0 auto;
-  padding: calc(var(--rep-space-6) + env(safe-area-inset-top)) var(--rep-remote-gutter)
-    calc(var(--rep-space-6) + env(safe-area-inset-bottom));
-}
-
-.remote-pairing-title,
-.remote-notice-title {
-  margin: 0;
-  font-family: var(--rep-display);
-  font-size: var(--rep-remote-text-title);
-  font-weight: 400;
-  line-height: var(--rep-leading-display);
-  color: var(--rep-ivory);
-}
-
-.remote-pairing-note,
-.remote-notice-note {
-  margin: 0;
-  font-size: var(--rep-remote-text-body);
-  line-height: var(--rep-leading-body);
-  color: var(--rep-dim);
-}
-
-.remote-pairing .rep-kit-button {
-  justify-content: center;
-  min-height: var(--rep-remote-touch);
-  padding: var(--rep-space-2) var(--rep-space-4);
-}
-
-.remote-refusal {
-  margin: 0;
-  font-family: var(--rep-mono);
-  font-size: var(--rep-remote-text-mono);
-  line-height: var(--rep-leading-body);
-  color: var(--rep-status-red);
-}
-
-/* --------------------------------------------------------------------------
- * Home: tonight's programme, at hand scale
- * -------------------------------------------------------------------------- */
-
-.remote-home {
-  display: flex;
-  flex-direction: column;
-  gap: var(--rep-space-6);
-  min-width: 0;
-}
-
-/* The screen's programme line: the destination in brass mono, then the rule
- * that runs to the edge. The rule is the line; the head draws no border of its
- * own, or the page would carry two. */
-.remote-screen-head {
-  display: flex;
-  align-items: center;
-  gap: var(--rep-space-3);
-  padding-bottom: var(--rep-space-3);
-}
-
-.remote-screen-title {
-  margin: 0;
-  color: var(--rep-house);
-  font-family: var(--rep-mono);
-  font-size: var(--rep-remote-text-mono);
-  font-weight: 400;
-  letter-spacing: var(--rep-tracking-caps);
-  line-height: 1.2;
-  text-transform: uppercase;
-}
-
-.remote-screen-rule {
-  flex: 1;
-  height: 1px;
-  background: var(--rep-hairline);
-}
-
-/* The feature: the 16:9 art between two hairlines, the copy over its scrim. One
- * size for every slide — the art covers the frame, and long copy is clamped
- * rather than growing it. The frame is one press, so it is one button and the
- * copy is its label; the ticks are the programme's furniture under it, not
- * inside it. */
-.remote-feature {
-  position: relative;
-  display: block;
-  width: 100%;
-  min-width: 0;
-}
-
-.remote-feature-frame {
-  position: relative;
-  display: block;
-  width: 100%;
-  min-width: 0;
-  padding: 0;
-  overflow: hidden;
-  border: 0;
-  border-top: 1px solid var(--rep-hairline);
-  border-bottom: 1px solid var(--rep-hairline);
-  border-radius: 0;
-  aspect-ratio: 16 / 9;
-  background: var(--rep-ink-raised);
-  color: var(--rep-ivory);
-  font: inherit;
-  text-align: left;
-  cursor: pointer;
-  /* A horizontal swipe steps the programme instead of panning a page; a
-   * vertical drag still scrolls Home. */
-  touch-action: pan-y;
-}
-
-/* The slide's own change is a fade (ADR-0036 §2); the keyed layer is replaced
- * when the programme steps, so the new item fades in without moving the page. */
-@keyframes remote-feature-fade {
-  from {
-    opacity: 0;
-  }
-  to {
-    opacity: 1;
-  }
-}
-
-.remote-feature-slide {
-  position: absolute;
-  inset: 0;
-  display: block;
-  animation: remote-feature-fade var(--rep-motion-fade) var(--rep-ease) both;
-}
-
-/* A slide that is part of a gesture is already on screen: no entrance fade.
- * A released gesture travels the rest of the way with the panel's duration. */
-.remote-feature-slide[data-tracking] {
-  animation: none;
-}
-
-.remote-feature-slide[data-settling] {
-  transition: transform var(--rep-motion-panel) var(--rep-ease);
-}
-
-.remote-feature-art {
-  position: absolute;
-  inset: 0;
-  z-index: 0;
-  display: block;
-  overflow: hidden;
-}
-
-.remote-feature-image {
-  display: block;
-  width: 100%;
-  height: 100%;
-  object-fit: cover;
-  filter: saturate(0.92) brightness(0.78);
-  -webkit-user-drag: none;
-  user-select: none;
-}
-
-/* A slide with no 16:9 art is a typographic plate, never a stretched poster
- * (design record §9): the name in display serif over the raised ink. */
-.remote-feature-plate {
-  display: grid;
-  place-items: center;
-  width: 100%;
-  height: 100%;
-  padding: var(--rep-space-4);
-  color: var(--rep-muted);
-  font-family: var(--rep-display);
-  font-size: var(--rep-remote-text-section);
-  font-weight: 500;
-  line-height: var(--rep-leading-display);
-  letter-spacing: var(--rep-tracking-display);
-  text-align: center;
-  box-sizing: border-box;
-}
-
-/* Two gradients bring the picture down to the hand: one from the foot for the
- * copy, one from the left so a wide still does not leave it floating. */
-.remote-feature-scrim {
-  position: absolute;
-  inset: 0;
-  background:
-    linear-gradient(
-      0deg,
-      color-mix(in srgb, var(--rep-ink) 92%, transparent) 0%,
-      color-mix(in srgb, var(--rep-ink) 42%, transparent) 58%,
-      transparent 88%
-    ),
-    linear-gradient(
-      90deg,
-      color-mix(in srgb, var(--rep-ink) 72%, transparent) 0%,
-      transparent 78%
-    );
-  pointer-events: none;
-}
-
-/* The copy is anchored to the foot of the fixed 16:9 frame. The action is one
- * of its items, below the description, so it can never cover the copy. */
-.remote-feature-copy {
-  position: absolute;
-  right: 0;
-  bottom: 0;
-  left: 0;
-  z-index: 2;
-  display: flex;
-  flex-direction: column;
-  gap: var(--rep-space-2);
-  padding: var(--rep-space-3) var(--rep-space-4);
-  min-width: 0;
-}
-
-.remote-feature-name {
-  display: -webkit-box;
-  overflow: hidden;
-  color: var(--rep-ivory);
-  font-family: var(--rep-display);
-  font-size: var(--rep-remote-text-hero);
-  font-weight: 400;
-  line-height: var(--rep-leading-display);
-  letter-spacing: var(--rep-tracking-display);
-  -webkit-box-orient: vertical;
-  -webkit-line-clamp: 2;
-}
-
-/* A long name steps down through the same two densities the window uses, rather
- * than wrapping the fixed frame taller. */
-.remote-feature-name[data-density="long"] {
-  font-size: calc(var(--rep-remote-text-hero) * 0.72);
-}
-
-.remote-feature-name[data-density="very-long"] {
-  font-size: calc(var(--rep-remote-text-hero) * 0.55);
-}
-
-.remote-feature-meta {
-  display: flex;
-  flex-wrap: nowrap;
-  gap: var(--rep-space-2);
-  overflow: hidden;
-  color: var(--rep-dim);
-  font-family: var(--rep-mono);
-  font-size: var(--rep-remote-text-mono);
-  line-height: 1.35;
-  white-space: nowrap;
-}
-
-.remote-feature-meta > span + span {
-  padding-left: var(--rep-space-2);
-  border-left: 1px solid var(--rep-hairline);
-}
-
-.remote-feature-description {
-  display: -webkit-box;
-  overflow: hidden;
-  color: var(--rep-dim);
-  font-family: var(--rep-sans);
-  font-size: var(--rep-remote-text-caption);
-  line-height: var(--rep-leading-caption);
-  -webkit-box-orient: vertical;
-  -webkit-line-clamp: 2;
-}
-
-/* The frame's one action, in the copy's flow below the description: a brass
- * plate at the foot's left, with the ticks to its right on the frame. */
-.remote-feature-action {
-  align-self: flex-start;
-  flex: none;
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  padding: var(--rep-space-1) var(--rep-space-3);
-  background: var(--rep-house);
-  color: var(--rep-ink);
-  font-family: var(--rep-sans);
-  font-size: var(--rep-remote-text-control);
-  font-weight: 500;
-  line-height: 1.2;
-  pointer-events: none;
-}
-
-/* A phone too narrow for a two-line name and a two-line description holds one
- * line of each: the 16:9 frame is fixed, and the copy may not grow past it. */
-@media (max-width: 22.4rem) {
-  .remote-feature-name,
-  .remote-feature-description {
-    -webkit-line-clamp: 1;
-  }
-}
-
-/* Previous and next on the hero: a tap target at each side, drawn over the art
- * as pointer furniture. They sit outside the frame's press, so pressing one
- * steps the programme and never opens the Title. */
-.remote-feature-arrow {
-  position: absolute;
-  top: 50%;
-  z-index: 3;
-  display: grid;
-  place-items: center;
-  width: var(--rep-remote-touch);
-  height: var(--rep-remote-touch);
-  padding: 0;
-  border: 1px solid var(--rep-hairline);
-  border-radius: 0;
-  background: color-mix(in srgb, var(--rep-ink) 62%, transparent);
-  color: var(--rep-ivory);
-  cursor: pointer;
-  transform: translateY(-50%);
-}
-
-.remote-feature-arrow svg {
-  width: 1.25rem;
-  height: 1.25rem;
-}
-
-.remote-feature-arrow:hover {
-  border-color: var(--rep-house-deep);
-}
-
-.remote-feature-arrow--previous {
-  left: var(--rep-space-2);
-}
-
-.remote-feature-arrow--next {
-  right: var(--rep-space-2);
-}
-
-/* One tick per slide under the frame: the current one fills over the item's 15
- * seconds, the others are hairlines. A tick is a tap target; it is outside the
- * frame's own press so a tap on it never opens the Title. */
-.remote-feature-ticks {
-  position: absolute;
-  right: var(--rep-gutter);
-  bottom: var(--rep-space-3);
-  z-index: 3;
-  display: flex;
-  align-items: center;
-  gap: var(--rep-space-2);
-}
-
-.remote-feature-tick {
-  position: relative;
-  display: block;
-  width: 28px;
-  height: 24px;
-  padding: 0;
-  border: 0;
-  border-radius: 0;
-  background: transparent;
-  cursor: pointer;
-  appearance: none;
-}
-
-.remote-feature-tick::before,
-.remote-feature-tick-fill {
-  position: absolute;
-  top: calc(50% - 1px);
-  right: 0;
-  left: 0;
-  height: 2px;
-}
-
-.remote-feature-tick::before {
-  content: "";
-  background: color-mix(in srgb, var(--rep-ivory) 38%, transparent);
-}
-
-/* The fill is the one thing that keeps moving under reduced motion; it reads
- * the programme's elapsed time and carries no transition of its own. */
-.remote-feature-tick-fill {
-  background: var(--rep-house);
-  transform-origin: left center;
-  transform: scaleX(0);
-}
-
-/* A row: the head, then the touch rail. */
-.remote-rail {
-  display: flex;
-  flex-direction: column;
-  gap: var(--rep-space-3);
-  min-width: 0;
-}
-
-.remote-rail-head {
-  display: flex;
-  align-items: baseline;
-  gap: var(--rep-space-3);
-  padding-bottom: var(--rep-space-2);
-  border-bottom: 1px solid var(--rep-hairline);
-}
-
-.remote-rail-index {
-  flex: none;
-  color: var(--rep-house);
-  font-family: var(--rep-mono);
-  font-size: var(--rep-remote-text-mono);
-  line-height: 1.2;
-}
-
-.remote-rail-title {
-  /* A long Catalog name gives way to the tag rather than widening the page:
-     the head is one line on a phone, and the row's number and count are what
-     a person scans. */
-  flex: 0 1 auto;
-  min-width: 0;
-  max-width: 55%;
-  overflow: hidden;
-  margin: 0;
-  color: var(--rep-ivory);
-  font-family: var(--rep-display);
-  font-size: var(--rep-remote-text-section);
-  font-weight: 500;
-  line-height: var(--rep-leading-display);
-  letter-spacing: var(--rep-tracking-display);
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-
-.remote-rail-rule {
-  flex: 1;
-  height: 1px;
-}
-
-.remote-rail-tag {
-  /* The count gives way too: a long "Addon / 92 films" line is bookkeeping, and
-     it truncates rather than carrying the page past the phone's edge. */
-  flex: 0 1 auto;
-  min-width: 0;
-  overflow: hidden;
-  color: var(--rep-muted);
-  font-family: var(--rep-mono);
-  font-size: var(--rep-remote-text-mono);
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-
-/* The rail's quiet head action: the next page, or the page that failed. */
-.remote-rail-action {
-  flex: none;
-}
-
-.remote-rail-note {
-  margin: 0;
-}
-
-.remote-rail-failure,
-.remote-rail-quiet {
-  margin: 0;
-  font-family: var(--rep-sans);
-  font-size: var(--rep-remote-text-body);
-  line-height: var(--rep-leading-body);
-}
-
-.remote-rail-failure {
-  color: var(--rep-status-red);
-}
-
-.remote-rail-quiet {
-  color: var(--rep-dim);
-}
-
-/* The rail slides under the finger: no arrows, no ten-foot paging, no snap and
- * the scrollbar is hidden because the cards say there is more. A snap point
- * fights the minimal reveal a cut-off first press asks for (#245). The block
- * padding leaves the focus keyline room inside the scrollport. */
-.remote-rail-track {
-  display: flex;
-  gap: var(--rep-space-3);
-  margin: 0;
-  padding: 3px 0 8px;
-  list-style: none;
-  overflow-x: auto;
-  overflow-y: hidden;
-  overscroll-behavior-x: contain;
-  scrollbar-width: none;
-  -ms-overflow-style: none;
-  -webkit-overflow-scrolling: touch;
-}
-
-.remote-rail-track::-webkit-scrollbar {
-  display: none;
-}
-
-.remote-rail-item {
-  flex: 0 0 auto;
-}
-
-/* A poster rail carries roughly two and a half posters; a 16:9 rail one and a
- * sliver of the next. Both are the kit's cards at the width the hand gives. */
-.remote-rail-item .rep-kit-poster {
-  width: clamp(7rem, 34vw, 9.5rem);
-}
-
-.remote-rail-item .rep-kit-continue {
-  width: clamp(12.5rem, 70vw, 19rem);
-}
-
-.remote-rail-more {
-  width: clamp(7rem, 34vw, 9.5rem);
-}
-
-/* The More card: the rail's last plate, the one control that opens the whole
- * row as a grid. */
-.remote-more {
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  width: 100%;
-  min-height: var(--rep-remote-touch);
-  aspect-ratio: 2 / 3;
-  padding: var(--rep-space-3);
-  border: 1px solid var(--rep-hairline);
-  border-radius: 0;
-  background: transparent;
-  color: var(--rep-dim);
-  font-family: var(--rep-mono);
-  font-size: var(--rep-remote-text-mono);
-  letter-spacing: var(--rep-tracking-caps);
-  text-align: center;
-  text-transform: uppercase;
-}
-
-.remote-more:hover:not(:disabled) {
-  border-color: var(--rep-house-deep);
-  background: transparent;
-  color: var(--rep-ivory);
-}
-
-.remote-more:disabled {
-  border-color: var(--rep-hairline);
-  color: var(--rep-muted);
-  opacity: 0.5;
-}
-
-/* A rail opened as a whole (#253): the cards the row has read, wrapping under
- * the same head the rail draws, with Back in it. The grid is static — the
- * rail's quiet head action is the one that pages. */
-.remote-grid {
-  display: flex;
-  flex-direction: column;
-  gap: var(--rep-space-4);
-  min-width: 0;
-}
-
-.remote-grid-head {
-  flex-wrap: wrap;
-}
-
-.remote-grid-head .rep-kit-button {
-  min-height: var(--rep-remote-touch);
-  padding: var(--rep-space-2) var(--rep-space-3);
-}
-
-.remote-grid-cards {
-  display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(6.75rem, 1fr));
-  gap: var(--rep-space-5) var(--rep-space-4);
-  min-width: 0;
-}
-
-.remote-grid-cards .rep-kit-poster {
-  width: 100%;
-}
-
-.remote-grid-continue {
-  grid-template-columns: repeat(auto-fill, minmax(12.5rem, 1fr));
-}
-
-.remote-grid-continue .rep-kit-continue {
-  width: 100%;
-}
-
-/* The empty programme: one title, one line, one way out. */
-.remote-empty {
-  display: grid;
-  justify-items: start;
-  gap: var(--rep-space-3);
-  padding: var(--rep-space-5) 0;
-  border-top: 1px solid var(--rep-hairline);
-  border-bottom: 1px solid var(--rep-hairline);
-}
-
-.remote-empty-title {
-  margin: 0;
-  color: var(--rep-ivory);
-  font-family: var(--rep-display);
-  font-size: var(--rep-remote-text-title);
-  font-weight: 400;
-  line-height: var(--rep-leading-display);
-  letter-spacing: var(--rep-tracking-display);
-}
-
-.remote-empty-body {
-  max-width: 34rem;
-  margin: 0;
-  color: var(--rep-dim);
-  font-family: var(--rep-sans);
-  font-size: var(--rep-remote-text-body);
-  line-height: var(--rep-leading-body);
-}
-
-.remote-empty .rep-kit-button {
-  min-height: var(--rep-remote-touch);
-  padding: var(--rep-space-2) var(--rep-space-5);
-}
-
-/* --------------------------------------------------------------------------
- * Library: the account's shelf, its gate, and the two ways out of a failure
- * -------------------------------------------------------------------------- */
-
-.remote-library-failure {
-  display: grid;
-  justify-items: start;
-  gap: var(--rep-space-3);
-}
-
-.remote-library-failure .rep-kit-button {
-  min-height: var(--rep-remote-touch);
-  padding: var(--rep-space-2) var(--rep-space-5);
-}
-
-.remote-library-grid {
-  display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(9rem, 1fr));
-  gap: var(--rep-space-5) var(--rep-space-4);
-  min-width: 0;
-}
-
-/* --------------------------------------------------------------------------
- * Discover, Search and Library: the destination column, its filters and shelf
- * -------------------------------------------------------------------------- */
-
-.remote-discover,
-.remote-search,
-.remote-library {
-  display: flex;
-  flex-direction: column;
-  gap: var(--rep-space-5);
-  min-width: 0;
-}
-
-/* The kind and genre chips slide under the finger in one line, like a rail.
- * Chips sit at the design record's 40px, under the 44px touch floor because
- * they are a filter row and not the one control a screen offers. */
-.remote-filters {
-  display: flex;
-  gap: var(--rep-space-2);
-  min-width: 0;
-  padding-bottom: var(--rep-space-1);
-  overflow-x: auto;
-  overscroll-behavior-x: contain;
-  scrollbar-width: none;
-  -ms-overflow-style: none;
-  -webkit-overflow-scrolling: touch;
-}
-
-.remote-filters::-webkit-scrollbar {
-  display: none;
-}
-
-.remote-filters > * {
-  flex: none;
-  min-height: 2.5rem;
-  padding: var(--rep-space-2) var(--rep-space-3);
-}
-
-.remote-search-form .rep-kit-field {
-  min-width: 0;
-}
-
-.remote-search-form .rep-kit-field-trailing .rep-kit-button,
-.remote-addons-form .rep-kit-field-trailing .rep-kit-button {
-  min-height: var(--rep-remote-touch);
-  padding: 0 var(--rep-space-4);
-}
-
-.remote-search-catalogs {
-  display: flex;
-  flex-direction: column;
-  gap: var(--rep-space-5);
-  min-width: 0;
-}
-
-/* A destination's own quiet line or failure, outside a row's head. */
-.remote-quiet,
-.remote-failure {
-  margin: 0;
-  font-family: var(--rep-sans);
-  font-size: var(--rep-remote-text-body);
-  line-height: var(--rep-leading-body);
-}
-
-.remote-quiet {
-  color: var(--rep-dim);
-}
-
-.remote-failure {
-  color: var(--rep-status-red);
-}
-
-/* --------------------------------------------------------------------------
- * Addons: the manifest form and the Host's register
- * -------------------------------------------------------------------------- */
-
-.remote-addons {
-  display: flex;
-  flex-direction: column;
-  gap: var(--rep-space-5);
-  min-width: 0;
-}
-
-.remote-addons-columns {
-  display: flex;
-  flex-direction: column;
-  gap: var(--rep-space-6);
-  min-width: 0;
-}
-
-.remote-addons-add {
-  display: flex;
-  flex-direction: column;
-  gap: var(--rep-space-3);
-  min-width: 0;
-}
-
-.remote-addons-status {
-  margin: 0;
-  color: var(--rep-house);
-  font-family: var(--rep-mono);
-  font-size: var(--rep-remote-text-mono);
-  line-height: var(--rep-leading-body);
-}
-
-.remote-addons-register {
-  min-width: 0;
-}
-
-.remote-addons-list {
-  display: flex;
-  flex-direction: column;
-  margin: 0;
-  padding: 0;
-  list-style: none;
-}
-
-.remote-addon {
-  display: flex;
-  flex-direction: column;
-  gap: var(--rep-space-3);
-  padding: var(--rep-space-4) 0;
-  border-top: 1px solid var(--rep-hairline);
-}
-
-.remote-addon:last-child {
-  border-bottom: 1px solid var(--rep-hairline);
-}
-
-.remote-addon-head {
-  display: flex;
-  align-items: baseline;
-  justify-content: space-between;
-  gap: var(--rep-space-3);
-}
-
-.remote-addon-name {
-  color: var(--rep-ivory);
-  font-family: var(--rep-display);
-  font-size: var(--rep-remote-text-section);
-  font-weight: 500;
-  line-height: var(--rep-leading-display);
-  letter-spacing: var(--rep-tracking-display);
-}
-
-.remote-addon-version {
-  flex: none;
-  color: var(--rep-muted);
-  font-family: var(--rep-mono);
-  font-size: var(--rep-remote-text-mono);
-}
-
-.remote-addon-facts {
-  display: grid;
-  grid-template-columns: repeat(2, minmax(0, 1fr));
-  gap: var(--rep-space-3) var(--rep-space-4);
-  margin: 0;
-}
-
-.remote-addon-facts dt {
-  color: var(--rep-muted);
-  font-family: var(--rep-mono);
-  font-size: var(--rep-remote-text-mono);
-  letter-spacing: var(--rep-tracking-caps);
-  text-transform: uppercase;
-}
-
-.remote-addon-facts dd {
-  margin: var(--rep-space-1) 0 0;
-  color: var(--rep-dim);
-  font-family: var(--rep-sans);
-  font-size: var(--rep-remote-text-body);
-  line-height: var(--rep-leading-body);
-  overflow-wrap: anywhere;
-}
-
-.remote-addon-actions {
-  display: flex;
-  flex-wrap: wrap;
-  gap: var(--rep-space-2) var(--rep-space-4);
-}
-
-.remote-addon-actions .rep-kit-button {
-  min-height: var(--rep-remote-touch);
-  padding: var(--rep-space-2) var(--rep-space-3);
-}
-
-.remote-addon-refusal {
-  margin: 0;
-  color: var(--rep-status-red);
-  font-family: var(--rep-sans);
-  font-size: var(--rep-remote-text-body);
-  line-height: var(--rep-leading-body);
-}
-
-/* A tablet gets the design record's two columns; a phone stacks the form over
- * the register, so the empty state still sits beside the way on. */
-@media (min-width: 48rem) {
-  .remote-addons-columns {
-    display: grid;
-    grid-template-columns: minmax(0, 1fr) minmax(0, 1.4fr);
-    align-items: start;
-  }
-}
-
-/* --------------------------------------------------------------------------
- * Settings: the register, and the four leaves a category opens (#211)
- * -------------------------------------------------------------------------- */
-
-.remote-settings,
-.remote-settings-leaf {
-  display: flex;
-  flex-direction: column;
-  gap: var(--rep-space-5);
-  min-width: 0;
-}
-
-.remote-settings-register {
-  display: flex;
-  flex-direction: column;
-  margin: 0;
-  padding: 0;
-  list-style: none;
-}
-
-.remote-settings-row {
-  border-top: 1px solid var(--rep-hairline);
-}
-
-.remote-settings-row:last-child {
-  border-bottom: 1px solid var(--rep-hairline);
-}
-
-/* A register row is a control the whole width of the page: the name in the
- * display serif, and the hairline doing the framing rather than a fill. */
-.remote-settings-row .rep-kit-button {
-  justify-content: flex-start;
-  width: 100%;
-  min-height: var(--rep-remote-touch);
-  padding: var(--rep-space-3) 0;
-  border: 0;
-  color: var(--rep-ivory);
-  font-family: var(--rep-display);
-  font-size: var(--rep-remote-text-section);
-  letter-spacing: var(--rep-tracking-display);
-}
-
-.remote-settings-row .rep-kit-button:hover:not(:disabled) {
-  color: var(--rep-house);
-}
-
-.remote-settings-group {
-  display: flex;
-  flex-direction: column;
-  gap: var(--rep-space-3);
-  min-width: 0;
-}
-
-.remote-settings-label {
-  margin: 0;
-  color: var(--rep-house);
-  font-family: var(--rep-mono);
-  font-size: var(--rep-remote-text-mono);
-  letter-spacing: var(--rep-tracking-caps);
-  text-transform: uppercase;
-}
-
-.remote-settings-sub {
-  margin: var(--rep-space-2) 0 0;
-  color: var(--rep-muted);
-  font-family: var(--rep-mono);
-  font-size: var(--rep-remote-text-mono);
-}
-
-.remote-settings-chips {
-  display: flex;
-  flex-wrap: wrap;
-  gap: var(--rep-space-2);
-}
-
-/* ---- the language lists (#330): variant D of the #300 prototype ---- */
-
-.remote-lang-field {
-  display: flex;
-  flex-wrap: wrap;
-  align-items: center;
-  gap: var(--rep-space-2);
-  min-height: var(--rep-remote-touch);
-  padding: var(--rep-space-2) 0;
-  border-bottom: 1px solid var(--rep-hairline);
-}
-
-.remote-lang-follow {
-  padding: 0 var(--rep-space-2);
-  color: var(--rep-muted);
-  font-size: var(--rep-remote-text-control);
-  font-style: italic;
-}
-
-.remote-lang-chip {
-  display: inline-flex;
-  align-items: center;
-  gap: var(--rep-space-2);
-  padding: 0 0 0 var(--rep-space-2);
-  border: 1px solid var(--rep-hairline);
-  color: var(--rep-ivory);
-  font-family: var(--rep-sans);
-  font-size: var(--rep-remote-text-control);
-  line-height: 1.2;
-  /* A swipe on a chip still scrolls the page; the long press lifts it. */
-  touch-action: pan-y;
-  user-select: none;
-  -webkit-touch-callout: none;
-}
-
-.remote-lang-chip[data-dragging] {
-  opacity: 0.5;
-}
-
-/* Where the lifted chip would land: the brass rule the chosen state uses. */
-.remote-lang-chip[data-drop] {
-  box-shadow: inset 2px 0 0 var(--rep-house);
-}
-
-.remote-lang-rank {
-  display: inline-grid;
-  place-items: center;
-  min-width: 1.6em;
-  padding: 0 0.2em;
-  background: var(--rep-house);
-  color: var(--rep-ink);
-  font-family: var(--rep-mono);
-  font-size: 0.85em;
-}
-
-.remote-lang-x,
-.remote-lang-open {
-  min-width: var(--rep-remote-touch);
-  min-height: var(--rep-remote-touch);
-  border: 0;
-  background: transparent;
-  color: var(--rep-muted);
-  font: inherit;
-}
-
-.remote-lang-open {
-  margin-left: auto;
-  color: var(--rep-house);
-}
-
-.remote-lang-check {
-  display: inline-block;
-  min-width: 1.5em;
-  color: var(--rep-house);
-}
-
-.remote-settings-form {
-  display: flex;
-  flex-direction: column;
-  gap: var(--rep-space-4);
-  min-width: 0;
-}
-
-.remote-settings-actions {
-  display: flex;
-  flex-wrap: wrap;
-  gap: var(--rep-space-3);
-}
-
-.remote-settings-actions .rep-kit-button {
-  min-height: var(--rep-remote-touch);
-  padding: var(--rep-space-2) var(--rep-space-4);
-}
-
-.remote-settings-status {
-  margin: 0;
-  color: var(--rep-house);
-  font-family: var(--rep-mono);
-  font-size: var(--rep-remote-text-mono);
-  line-height: var(--rep-leading-body);
-}
-
-/* The ledger: a term in mono, the fact under it, two to a row. */
-.remote-facts {
-  display: grid;
-  grid-template-columns: repeat(2, minmax(0, 1fr));
-  gap: var(--rep-space-3) var(--rep-space-4);
-  margin: 0;
-}
-
-.remote-facts dt {
-  color: var(--rep-muted);
-  font-family: var(--rep-mono);
-  font-size: var(--rep-remote-text-mono);
-  letter-spacing: var(--rep-tracking-caps);
-  text-transform: uppercase;
-}
-
-.remote-facts dd {
-  margin: var(--rep-space-1) 0 0;
-  color: var(--rep-dim);
-  font-size: var(--rep-remote-text-body);
-  line-height: var(--rep-leading-body);
-  overflow-wrap: anywhere;
-}
-
-/* The pairing readout is the screen a second device is paired from: the code
- * is drawn at hand scale, in the bookkeeping family, with room to read out. */
-.remote-pairing {
-  display: flex;
-  flex-direction: column;
-  gap: var(--rep-space-4);
-  padding: var(--rep-space-4) 0;
-  border-top: 1px solid var(--rep-hairline);
-  border-bottom: 1px solid var(--rep-hairline);
-}
-
-.remote-pairing-block {
-  display: flex;
-  flex-direction: column;
-  gap: var(--rep-space-1);
-  min-width: 0;
-}
-
-.remote-pairing-value {
-  margin: 0;
-  color: var(--rep-ivory);
-  font-size: var(--rep-remote-text-body);
-  line-height: var(--rep-leading-body);
-  overflow-wrap: anywhere;
-}
-
-.remote-pairing-code {
-  margin: 0;
-  color: var(--rep-ivory);
-  font-family: var(--rep-mono);
-  font-size: 1.75rem;
-  line-height: 1.2;
-  letter-spacing: 0.16em;
-  overflow-wrap: anywhere;
-}
-
-.remote-settings-devices {
-  display: flex;
-  flex-direction: column;
-  margin: 0;
-  padding: 0;
-  list-style: none;
-}
-
-.remote-settings-device {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: var(--rep-space-3);
-  padding: var(--rep-space-3) 0;
-  border-top: 1px solid var(--rep-hairline);
-}
-
-.remote-settings-device:last-child {
-  border-bottom: 1px solid var(--rep-hairline);
-}
-
-.remote-settings-device-body {
-  display: flex;
-  flex-direction: column;
-  gap: var(--rep-space-1);
-  min-width: 0;
-}
-
-.remote-settings-device-name {
-  color: var(--rep-ivory);
-  font-family: var(--rep-display);
-  font-size: var(--rep-remote-text-section);
-  line-height: var(--rep-leading-display);
-  letter-spacing: var(--rep-tracking-display);
-  overflow-wrap: anywhere;
-}
-
-.remote-settings-device-date {
-  color: var(--rep-muted);
-  font-family: var(--rep-mono);
-  font-size: var(--rep-remote-text-mono);
-}
-
-.remote-settings-device .rep-kit-button {
-  flex: none;
-  min-height: var(--rep-remote-touch);
-  padding: var(--rep-space-2) var(--rep-space-3);
-}
-
-/* About/Credits: the mark, its required notice, and the licence. */
-.remote-credit {
-  display: flex;
-  flex-wrap: wrap;
-  align-items: center;
-  gap: var(--rep-space-3);
-}
-
-.remote-credit-logo {
-  width: auto;
-  height: 1.5rem;
-}
-
-.remote-credit-notice,
-.remote-licence {
-  margin: 0;
-  color: var(--rep-dim);
-  font-size: var(--rep-remote-text-body);
-  line-height: var(--rep-leading-body);
-}
-
-@media (min-width: 48rem) {
-  .remote-pairing {
-    flex-direction: row;
-    align-items: flex-start;
-    gap: var(--rep-space-6);
-  }
-
-  .remote-pairing > * {
-    flex: 1;
-  }
-}
-
-/* --------------------------------------------------------------------------
- * The pushed level: one screen, named, over the destination it was opened from
- * -------------------------------------------------------------------------- */
-
-.remote-level {
-  display: grid;
-  gap: var(--rep-space-3);
-  align-content: start;
-  min-height: 40dvh;
-}
-
-.remote-level-title {
-  margin: 0;
-  color: var(--rep-ivory);
-  font-family: var(--rep-display);
-  font-size: var(--rep-remote-text-title);
-  font-weight: 400;
-  line-height: var(--rep-leading-display);
-  letter-spacing: var(--rep-tracking-display);
-}
-
-.remote-level-note {
-  margin: 0;
-  color: var(--rep-dim);
-  font-family: var(--rep-sans);
-  font-size: var(--rep-remote-text-body);
-  line-height: var(--rep-leading-body);
-}
-
-/* The Title and the Streams level share a frame: Back at the top of the page,
- * a hairline to the edge, and the level's own head under it. */
-.remote-level-page {
-  display: flex;
-  flex-direction: column;
-  gap: var(--rep-space-4);
-  min-width: 0;
-}
-
-.remote-title-level,
-.remote-streams {
-  display: flex;
-  flex-direction: column;
-  gap: var(--rep-space-4);
-  min-width: 0;
-}
-
-.remote-level-head {
-  display: flex;
-  align-items: center;
-  gap: var(--rep-space-3);
-}
-
-.remote-level-head .rep-kit-button {
-  min-height: var(--rep-remote-touch);
-  padding: var(--rep-space-2) var(--rep-space-3);
-}
-
-.remote-level-rule {
-  flex: 1;
-  height: 1px;
-  background: var(--rep-hairline);
-}
-
-/* --------------------------------------------------------------------------
- * The Title: the backdrop is the page, the copy stands over it
- * -------------------------------------------------------------------------- */
-
-.remote-title {
-  position: relative;
-  display: flex;
-  flex-direction: column;
-  gap: var(--rep-space-5);
-  min-width: 0;
-  padding: var(--rep-space-5) 0;
-  overflow: hidden;
-}
-
-.remote-title-backdrop {
-  position: absolute;
-  inset: 0;
-  z-index: 0;
-  overflow: hidden;
-}
-
-.remote-title-art {
-  display: block;
-  width: 100%;
-  height: 100%;
-  object-fit: cover;
-  filter: saturate(0.9) brightness(0.68);
-  -webkit-user-drag: none;
-  user-select: none;
-}
-
-/* Two gradients: one from the foot so the side reads, one from the left so a
- * wide still does not leave the copy floating (design record §9). */
-.remote-title-scrim {
-  position: absolute;
-  inset: 0;
-  background:
-    linear-gradient(
-      to top,
-      var(--rep-ink) 0%,
-      color-mix(in srgb, var(--rep-ink) 58%, transparent) 46%,
-      transparent 82%
-    ),
-    linear-gradient(
-      to right,
-      color-mix(in srgb, var(--rep-ink) 88%, transparent) 0%,
-      color-mix(in srgb, var(--rep-ink) 42%, transparent) 58%,
-      transparent 100%
-    );
-  pointer-events: none;
-}
-
-.remote-title-copy,
-.remote-title-side {
-  position: relative;
-  z-index: 1;
-  display: flex;
-  flex-direction: column;
-  gap: var(--rep-space-3);
-  min-width: 0;
-}
-
-.remote-title-logo {
-  display: block;
-  max-width: 74%;
-  max-height: 5rem;
-  object-fit: contain;
-  object-position: left;
-}
-
-.remote-title-name {
-  max-width: 20ch;
-  margin: 0;
-  color: var(--rep-ivory);
-  font-family: var(--rep-display);
-  font-size: var(--rep-remote-text-hero);
-  font-weight: 500;
-  line-height: var(--rep-leading-display);
-  letter-spacing: var(--rep-tracking-display);
-  text-wrap: balance;
-}
-
-.remote-title-facts {
-  display: flex;
-  flex-wrap: wrap;
-  align-items: baseline;
-  gap: 0;
-  color: var(--rep-dim);
-  font-family: var(--rep-mono);
-  font-size: var(--rep-remote-text-caption);
-  line-height: 1.35;
-}
-
-.remote-title-facts > span + span {
-  margin-left: var(--rep-space-3);
-  padding-left: var(--rep-space-3);
-  border-left: 1px solid var(--rep-hairline);
-}
-
-.remote-title-fact[data-role="rating"] {
-  color: var(--rep-house);
-}
-
-.remote-title-description {
-  display: -webkit-box;
-  max-width: 62ch;
-  margin: 0;
-  overflow: hidden;
-  color: var(--rep-dim);
-  font-family: var(--rep-sans);
-  font-size: var(--rep-remote-text-body);
-  line-height: var(--rep-leading-body);
-  -webkit-box-orient: vertical;
-  -webkit-line-clamp: 8;
-}
-
-.remote-title-attribution {
-  display: flex;
-  flex-direction: column;
-  align-items: flex-start;
-  gap: var(--rep-space-2);
-  color: var(--rep-muted);
-  font-family: var(--rep-mono);
-  font-size: var(--rep-remote-text-mono);
-  line-height: 1.4;
-}
-
-/* The stamp is a sentence, so it wraps where a badge would not. */
-.remote-title-unmapped {
-  white-space: normal;
-}
-
-.remote-title-side {
-  gap: var(--rep-space-4);
-  padding-top: var(--rep-space-4);
-  border-top: 1px solid var(--rep-hairline);
-}
-
-.remote-title-side[data-kind="film"] {
-  align-items: flex-start;
-}
-
-.remote-title-empty-series {
-  display: grid;
-  gap: var(--rep-space-2);
-}
-
-.remote-title-kicker {
-  margin: 0;
-  color: var(--rep-house);
-  font-family: var(--rep-mono);
-  font-size: var(--rep-remote-text-mono);
-  letter-spacing: var(--rep-tracking-caps);
-  line-height: 1.3;
-  text-transform: uppercase;
-}
-
-.remote-title-note {
-  max-width: 62ch;
-  margin: 0;
-  color: var(--rep-dim);
-  font-family: var(--rep-sans);
-  font-size: var(--rep-remote-text-body);
-  line-height: var(--rep-leading-body);
-}
-
-.remote-play[data-variant="primary"] {
-  gap: var(--rep-space-3);
-  min-height: var(--rep-remote-touch);
-  padding: var(--rep-space-2) var(--rep-space-5);
-  font-family: var(--rep-sans);
-  font-size: var(--rep-remote-text-control);
-}
-
-.remote-play-mark {
-  flex: none;
-  width: 1.1em;
-  height: 1.1em;
-}
-
-.remote-title-program {
-  display: flex;
-  flex-direction: column;
-  gap: var(--rep-space-4);
-  min-width: 0;
-}
-
-/* The seasons slide under the finger in one line, like the filters, and never
- * give up their height to the body that scrolls under them. */
-.remote-title-seasons {
-  display: flex;
-  flex: none;
-  gap: var(--rep-space-2);
-  min-width: 0;
-  padding-bottom: var(--rep-space-1);
-  overflow-x: auto;
-  overscroll-behavior-x: contain;
-  scrollbar-width: none;
-  -ms-overflow-style: none;
-  -webkit-overflow-scrolling: touch;
-}
-
-.remote-title-seasons::-webkit-scrollbar {
-  display: none;
-}
-
-.remote-title-seasons > * {
-  flex: none;
-  min-height: 2.5rem;
-  padding: var(--rep-space-2) var(--rep-space-3);
-}
-
-.remote-title-episodes {
-  display: grid;
-  min-width: 0;
-  border-top: 1px solid var(--rep-hairline);
-}
-
-/* An episode is a control that chooses, not one that opens: the chosen row
- * carries the brass inset rule, and every row keeps the same step so the list
- * does not shift. */
-.remote-episode {
-  display: grid;
-  grid-template-columns: 7.25rem minmax(0, 1fr);
-  align-items: center;
-  gap: var(--rep-space-3);
-  width: 100%;
-  padding: var(--rep-space-2) var(--rep-space-3);
-  border: 0;
-  border-bottom: 1px solid var(--rep-hairline);
-  border-radius: 0;
-  background: transparent;
-  color: var(--rep-dim);
-  font-family: var(--rep-sans);
-  text-align: left;
-  cursor: pointer;
-  box-sizing: border-box;
-}
-
-.remote-episode[aria-pressed="true"] {
-  background: var(--rep-ink-elevated);
-  box-shadow: inset 2px 0 0 var(--rep-house);
-  color: var(--rep-ivory);
-}
-
-.remote-episode-still,
-.remote-episode-plate {
-  display: block;
-  width: 100%;
-  aspect-ratio: 16 / 9;
-  object-fit: cover;
-  background: var(--rep-ink-raised);
-}
-
-.remote-episode-plate {
-  display: grid;
-  place-items: center;
-  color: var(--rep-muted);
-  font-family: var(--rep-mono);
-  font-size: var(--rep-remote-text-badge);
-}
-
-.remote-episode-copy {
-  display: flex;
-  flex-direction: column;
-  gap: 2px;
-  min-width: 0;
-}
-
-.remote-episode-label {
-  color: var(--rep-house);
-  font-family: var(--rep-mono);
-  font-size: var(--rep-remote-text-mono);
-  line-height: 1.3;
-}
-
-.remote-episode-name {
-  overflow: hidden;
-  font-family: var(--rep-sans);
-  font-size: var(--rep-remote-text-control);
-  line-height: 1.25;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-
-/* An announced episode says the day it airs and stays playable (#269). */
-.remote-episode-airs {
-  color: var(--rep-muted);
-  font-family: var(--rep-mono);
-  font-size: var(--rep-remote-text-mono);
-  letter-spacing: var(--rep-tracking-caps);
-}
-
-/* --------------------------------------------------------------------------
- * Streams: a screening list, one block per Addon
- * -------------------------------------------------------------------------- */
-
-.remote-streams-heading {
-  display: grid;
-  gap: var(--rep-space-2);
-}
-
-.remote-streams-kicker {
-  display: flex;
-  align-items: center;
-  gap: var(--rep-space-3);
-  margin: 0;
-  color: var(--rep-dim);
-  font-family: var(--rep-mono);
-  font-size: var(--rep-remote-text-mono);
-  letter-spacing: var(--rep-tracking-caps);
-  line-height: 1.2;
-  text-transform: uppercase;
-}
-
-.remote-streams-kicker > span:first-child {
-  color: var(--rep-house);
-  white-space: nowrap;
-}
-
-.remote-streams-kicker > span:last-child {
-  white-space: nowrap;
-}
-
-.remote-rule {
-  flex: 1;
-  height: 1px;
-  background: var(--rep-hairline);
-}
-
-.remote-streams-title {
-  max-width: 62ch;
-  margin: 0;
-  color: var(--rep-ivory);
-  font-family: var(--rep-display);
-  font-size: var(--rep-remote-text-title);
-  font-weight: 500;
-  line-height: var(--rep-leading-display);
-  letter-spacing: var(--rep-tracking-display);
-}
-
-.remote-stream-group {
-  display: flex;
-  flex-direction: column;
-  gap: var(--rep-space-3);
-  min-width: 0;
-}
-
-.remote-stream-list {
-  display: grid;
-  gap: 2px;
-  margin: 0;
-  padding: 0;
-  border-top: 1px solid var(--rep-hairline);
-  list-style: none;
-}
-
-/* A candidate is a row, not a line of type: the list's own grammar. */
-.remote-stream-candidate {
-  display: grid;
-  grid-template-columns: 1.75rem minmax(0, 1fr) auto;
-  align-items: start;
-  gap: var(--rep-space-3);
-  width: 100%;
-  min-height: var(--rep-remote-touch);
-  padding: var(--rep-space-3) var(--rep-space-2);
-  border: 0;
-  border-bottom: 1px solid var(--rep-hairline);
-  border-radius: 0;
-  background: transparent;
-  color: var(--rep-dim);
-  font-family: var(--rep-sans);
-  text-align: left;
-  cursor: pointer;
-  box-sizing: border-box;
-}
-
-.remote-stream-candidate[aria-pressed="true"] {
-  background: var(--rep-ink-elevated);
-}
-
-.remote-stream-candidate[data-unplayable="true"] {
-  box-shadow: inset 2px 0 0 var(--rep-status-red);
-}
-
-.remote-stream-candidate:disabled {
-  opacity: 0.55;
-}
-
-.remote-stream-index {
-  padding-top: var(--rep-space-1);
-  color: var(--rep-house);
-  font-family: var(--rep-mono);
-  font-size: var(--rep-remote-text-mono);
-  line-height: 1.2;
-}
-
-.remote-stream-body {
-  display: grid;
-  gap: var(--rep-space-2);
-  min-width: 0;
-}
-
-.remote-stream-badges {
-  display: flex;
-  flex-wrap: wrap;
-  align-items: center;
-  gap: var(--rep-space-2);
-}
-
-.remote-stream-badge {
-  padding: 1px var(--rep-space-2);
-  border: 1px solid var(--rep-hairline);
-  color: var(--rep-dim);
-  font-family: var(--rep-mono);
-  font-size: var(--rep-remote-text-badge);
-  line-height: 1.4;
-  white-space: nowrap;
-}
-
-/* The first badge line is the source; every line after it is a quality mark.
- * Nothing is re-worded or re-ranked: the lines are the Addon's (design §9). */
-.remote-stream-badge[data-role="quality"] {
-  border-color: color-mix(in srgb, var(--rep-house) 58%, var(--rep-hairline));
-  color: var(--rep-ivory);
-}
-
-.remote-stream-description {
-  color: var(--rep-dim);
-  font-family: var(--rep-sans);
-  font-size: var(--rep-remote-text-caption);
-  line-height: 1.4;
-  white-space: pre-line;
-}
-
-.remote-stream-file {
-  overflow-wrap: anywhere;
-  color: var(--rep-muted);
-  font-family: var(--rep-mono);
-  font-size: var(--rep-remote-text-mono);
-  line-height: 1.35;
-}
-
-.remote-stream-notes {
-  display: flex;
-  flex-wrap: wrap;
-  align-items: center;
-  gap: var(--rep-space-2);
-}
-
-.remote-stream-warning {
-  padding: 2px var(--rep-space-2);
-  border: 1px solid var(--rep-house);
-  color: var(--rep-house);
-  font-family: var(--rep-sans);
-  font-size: var(--rep-remote-text-badge);
-  line-height: 1.4;
-}
-
-.remote-stream-unplayable {
-  padding: 2px var(--rep-space-2);
-  border: 1px solid var(--rep-status-red);
-  color: var(--rep-status-red);
-  font-family: var(--rep-sans);
-  font-size: var(--rep-remote-text-badge);
-  line-height: 1.4;
-}
-
-.remote-stream-opening {
-  color: var(--rep-house);
-  font-family: var(--rep-mono);
-  font-size: var(--rep-remote-text-mono);
-}
-
-.remote-stream-mark {
-  align-self: center;
-  color: var(--rep-muted);
-  font-family: var(--rep-mono);
-  font-size: var(--rep-remote-text-badge);
-  letter-spacing: var(--rep-tracking-caps);
-  text-transform: uppercase;
-  white-space: nowrap;
-}
-
-.remote-stream-candidate[data-unplayable="true"] .remote-stream-mark {
-  color: var(--rep-status-red);
-}
-
-.remote-streams-chosen {
-  margin: 0;
-  padding-top: var(--rep-space-3);
-  border-top: 1px solid var(--rep-status-red);
-  color: var(--rep-status-red);
-  font-family: var(--rep-sans);
-  font-size: var(--rep-remote-text-body);
-  line-height: var(--rep-leading-body);
-}
-
-@media (min-width: 48rem) {
-  .remote-title {
-    display: grid;
-    grid-template-columns: minmax(0, 1.15fr) minmax(0, 1fr);
-    align-items: end;
-  }
-
-  .remote-title-side {
-    border-top: 0;
-    padding-top: 0;
-  }
-}
-
-
-/* --------------------------------------------------------------------------
- * The player: the docked strip, and the expanded card as a level
- *
- * The strip is a full-width band above the index and reserves its height; the
- * card is the pushed level over the destination the strip was pressed on. The
- * drawing is the phone's own; the facts are the core's playback view.
- * -------------------------------------------------------------------------- */
-
-/* A label a person does not read, but a screen reader does: the strip's own
-   content is the button's name, and this says what pressing it does. */
-.remote-visually-hidden {
+.mq-remote-visually-hidden {
   position: absolute;
   width: 1px;
   height: 1px;
@@ -2003,544 +70,1181 @@ body {
   white-space: nowrap;
 }
 
-.remote-player-strip {
+/* --------------------------------------------------------------------------
+ * App shell, live connection pill, dock, and alert banners
+ * -------------------------------------------------------------------------- */
+
+.mq-remote-room {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
+  grid-template-rows: 1fr auto;
+  min-height: 100dvh;
+  background: var(--mq-canvas);
+}
+
+.mq-remote-viewport {
   position: relative;
-  display: grid;
-  grid-template-columns: 2.35rem minmax(0, 1fr) auto auto;
-  align-items: center;
-  gap: var(--rep-space-2);
-  min-height: var(--rep-remote-strip);
-  padding: var(--rep-space-2) var(--rep-remote-gutter);
-  border-top: 1px solid var(--rep-hairline);
-  background: var(--rep-ink);
-}
-
-.remote-player-strip-art {
-  display: block;
-  width: 2.35rem;
-  height: calc(var(--rep-remote-strip) - 1rem);
-  overflow: hidden;
-  background: var(--rep-ink-raised);
-}
-
-.remote-player-strip-art img {
-  display: block;
-  width: 100%;
-  height: 100%;
-  object-fit: cover;
-  filter: saturate(0.9) brightness(0.86);
-}
-
-.remote-player-strip-open {
-  display: grid;
-  gap: 1px;
   min-width: 0;
-  min-height: var(--rep-remote-touch);
-  padding: var(--rep-space-1) 0;
-  border: 0;
-  color: var(--rep-ivory);
-  font: inherit;
-  text-align: left;
-  cursor: pointer;
-  background: 0 0;
-  border-radius: 0;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
 }
 
-.remote-player-strip-title {
-  overflow: hidden;
-  color: var(--rep-ivory);
-  font-family: var(--rep-display);
-  font-size: var(--rep-remote-text-body);
+.mq-remote-viewport[data-under="true"] {
+  display: none;
+}
+
+.mq-remote-screen {
+  flex: 1 0 auto;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  padding-bottom: 24px;
+}
+
+.mq-remote-reconnecting {
+  position: sticky;
+  top: 0;
+  z-index: 25;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  padding: calc(8px + env(safe-area-inset-top)) 16px 8px;
+  background: color-mix(in srgb, var(--mq-surface) 92%, transparent);
+  backdrop-filter: blur(12px);
+  -webkit-backdrop-filter: blur(12px);
+  border-bottom: 1px solid var(--mq-line);
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--mq-text-muted);
+}
+
+.mq-remote-dock {
+  position: sticky;
+  bottom: 0;
+  z-index: 30;
+  background: color-mix(in srgb, var(--mq-canvas) 92%, transparent);
+  backdrop-filter: blur(20px);
+  -webkit-backdrop-filter: blur(20px);
+}
+
+.mq-remote-refusal {
+  margin: 12px 16px 0;
+  padding: 12px 14px;
+  border-radius: 12px;
+  background: var(--mq-danger-tint);
+  border: 1px solid color-mix(in srgb, var(--mq-danger) 42%, transparent);
+  color: var(--mq-white);
+  font-size: 13px;
+  line-height: 18px;
+}
+
+.mq-remote-inline-error {
+  margin: 0;
+  padding: 10px 12px;
+  border-radius: 10px;
+  background: var(--mq-danger-tint);
+  border: 1px solid color-mix(in srgb, var(--mq-danger) 42%, transparent);
+  color: var(--mq-white);
+  font-size: 13px;
+  line-height: 18px;
+}
+
+.mq-remote-inline-status {
+  margin: 0;
+  padding: 10px 12px;
+  border-radius: 10px;
+  background: var(--mq-accent-soft);
+  border: 1px solid color-mix(in srgb, var(--mq-accent) 42%, transparent);
+  color: var(--mq-white);
+  font-size: 13px;
+  line-height: 18px;
+}
+
+.mq-remote-waiting {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 12px;
+  min-height: 50dvh;
+  padding: 32px 24px;
+  text-align: center;
+  color: var(--mq-text-muted);
+  font-size: 15px;
+}
+
+.mq-remote-waiting-title {
+  margin: 0;
+  font-size: 22px;
+  font-weight: 800;
+  color: var(--mq-white);
+}
+
+.mq-remote-waiting-note {
+  margin: 0;
+  font-size: 14px;
+  color: var(--mq-text-muted);
+}
+
+/* --------------------------------------------------------------------------
+ * Pairing screen (`P13`)
+ * -------------------------------------------------------------------------- */
+
+.mq-remote-pairing {
+  min-height: 100dvh;
+  padding: calc(40px + env(safe-area-inset-top)) 24px calc(32px + env(safe-area-inset-bottom));
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+  gap: 24px;
+  max-width: 420px;
+  margin: 0 auto;
+}
+
+.mq-remote-pairing-head {
+  display: grid;
+  justify-items: center;
+  gap: 10px;
+  text-align: center;
+}
+
+.mq-remote-pairing-title {
+  margin: 6px 0 0;
+  font-size: 28px;
+  font-weight: 800;
+  line-height: 1.18;
+  color: var(--mq-white);
+}
+
+.mq-remote-pairing-note {
+  margin: 0;
+  font-size: 14px;
+  line-height: 20px;
+  color: var(--mq-text-muted);
+  max-width: 310px;
+}
+
+.mq-remote-pairing-body {
+  display: grid;
+  justify-items: center;
+  gap: 14px;
+}
+
+.mq-remote-pairing-host {
+  margin: 0;
+  padding: 6px 14px;
+  border-radius: 9999px;
+  background: var(--mq-row-rest);
+  border: 1px solid var(--mq-line);
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--mq-text-muted);
+}
+
+.mq-remote-pairing-submit {
+  width: 100%;
+  margin-top: 4px;
+}
+
+.mq-remote-pairing-footnote {
+  margin: 0;
+  text-align: center;
+  font-size: 12px;
+  line-height: 18px;
+  color: var(--mq-text-faint);
+}
+
+/* --------------------------------------------------------------------------
+ * Shared screen headers (`P7`, `P9`, `P10`, `P11`)
+ * -------------------------------------------------------------------------- */
+
+.mq-remote-large-head {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 12px;
+  padding: calc(16px + env(safe-area-inset-top)) 16px 12px;
+}
+
+.mq-remote-large-head-titles {
+  min-width: 0;
+  display: grid;
+  gap: 4px;
+}
+
+.mq-remote-large-title {
+  margin: 0;
+  font-size: 28px;
+  font-weight: 800;
+  line-height: 32px;
+  letter-spacing: -0.02em;
+  color: var(--mq-white);
+}
+
+.mq-remote-large-subtitle {
+  margin: 0;
+  font-size: 13px;
   font-weight: 500;
-  line-height: 1.1;
+  line-height: 18px;
+  color: var(--mq-text-muted);
+}
+
+.mq-remote-head-action {
+  flex: none;
+  min-height: 44px;
+  padding: 0 12px;
+  border: 0;
+  border-radius: 10px;
+  background: transparent;
+  color: var(--mq-accent);
+  font-size: 15px;
+  font-weight: 700;
+  cursor: pointer;
+}
+
+.mq-remote-head-action:active {
+  background: var(--mq-press-tab);
+}
+
+.mq-remote-body {
+  padding: 0 16px 24px;
+  display: grid;
+  gap: 16px;
+  align-content: start;
+}
+
+/* --------------------------------------------------------------------------
+ * Shared desktop kit adaptations on hand scale
+ * -------------------------------------------------------------------------- */
+
+.mq-remote-root .mq-chip {
+  min-height: 36px;
+  padding: 0 14px;
+  border-radius: 9999px;
+  font-size: 13px;
+  font-weight: 600;
+  gap: 6px;
+}
+
+.mq-remote-root .mq-c7-dropdown {
+  min-width: 0;
+  flex: 1 1 0;
+}
+
+.mq-remote-root .mq-c7-dropdown-trigger {
+  width: 100%;
+  min-height: 44px;
+  padding: 0 12px;
+  border-radius: 10px;
+  gap: 6px;
+  font-size: 13px;
+  font-weight: 600;
+}
+
+.mq-remote-root .mq-c7-dropdown-value {
+  overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
 }
 
-.remote-player-strip-episode {
-  color: var(--rep-muted);
-  font-family: var(--rep-mono);
-  font-size: var(--rep-remote-text-badge);
-  line-height: 1.2;
+.mq-remote-root .mq-c7-dropdown-drop {
+  min-width: 100%;
+  max-height: 280px;
+  overflow-y: auto;
+  padding: 6px;
+  border-radius: 12px;
+  background: var(--mq-panel-bg-dense);
 }
 
-.remote-player-strip-note {
-  color: var(--rep-dim);
-  font-family: var(--rep-mono);
-  font-size: var(--rep-remote-text-badge);
-  line-height: 1.3;
+.mq-remote-root .mq-c7-dropdown-option {
+  min-height: 44px;
+  padding: 0 12px;
+  border-radius: 8px;
+  font-size: 14px;
 }
 
-.remote-player-strip-progress {
+.mq-remote-root .mq-c7-search {
+  min-height: 52px;
+  height: 52px;
+  padding: 0 14px;
+  border-radius: 14px;
+  gap: 10px;
+}
+
+.mq-remote-root .mq-c7-search-input {
+  font-size: 15px;
+}
+
+.mq-remote-root .mq-c7-field {
+  gap: 6px;
+}
+
+.mq-remote-root .mq-c7-field-label {
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--mq-text-muted);
+}
+
+.mq-remote-addons-field .mq-c7-field-label {
   position: absolute;
-  right: 0;
-  bottom: 0;
-  left: 0;
-  height: 2px;
-  background: var(--rep-hairline);
-}
-
-.remote-player-strip-progress > span {
-  display: block;
-  height: 100%;
-  background: var(--rep-house);
-}
-
-.remote-player-icon {
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  min-width: var(--rep-remote-touch);
-  min-height: var(--rep-remote-touch);
-  padding: 0 var(--rep-space-2);
-  border: 1px solid var(--rep-hairline);
-  color: var(--rep-dim);
-  font-family: var(--rep-sans);
-  font-size: var(--rep-remote-text-control);
-  font-weight: 500;
-  line-height: 1.2;
-  cursor: pointer;
-  background: 0 0;
-  border-radius: 0;
-}
-
-.remote-player-icon svg {
-  width: 1.35rem;
-  height: 1.35rem;
-}
-
-.remote-player-icon[data-role="primary"] {
-  border-color: var(--rep-house);
-  background: var(--rep-house);
-  color: var(--rep-ink);
-}
-
-.remote-player-icon:disabled {
-  border-color: var(--rep-hairline);
-  color: var(--rep-muted);
-  cursor: default;
-  background: 0 0;
-  opacity: 0.55;
-}
-
-.remote-player-icon[data-pending="true"] {
-  color: var(--rep-house);
-}
-
-.remote-player-card {
-  display: flex;
-  flex-direction: column;
-  gap: var(--rep-space-4);
-  min-width: 0;
-}
-
-.remote-player-plate {
-  position: relative;
-  aspect-ratio: 16 / 9;
+  width: 1px;
+  height: 1px;
+  margin: -1px;
+  padding: 0;
   overflow: hidden;
-  border-top: 1px solid var(--rep-hairline);
-  border-bottom: 1px solid var(--rep-hairline);
-  background: var(--rep-ink-raised);
-}
-
-.remote-player-plate[data-empty="true"] {
-  background: var(--rep-ink-elevated);
-}
-
-.remote-player-plate-art {
-  position: absolute;
-  inset: 0;
-  display: block;
-  width: 100%;
-  height: 100%;
-  object-fit: cover;
-  filter: saturate(0.9) brightness(0.7);
-}
-
-.remote-player-plate-scrim {
-  position: absolute;
-  inset: 0;
-  background: linear-gradient(
-    to top,
-    var(--rep-ink) 0%,
-    color-mix(in srgb, var(--rep-ink) 58%, transparent) 52%,
-    transparent 88%
-  );
-  pointer-events: none;
-}
-
-.remote-player-plate-copy {
-  position: absolute;
-  right: 0;
-  bottom: 0;
-  left: 0;
-  display: grid;
-  gap: var(--rep-space-1);
-  padding: var(--rep-space-4);
-}
-
-.remote-player-kicker {
-  color: var(--rep-house);
-  font-family: var(--rep-mono);
-  font-size: var(--rep-remote-text-mono);
-  letter-spacing: var(--rep-tracking-caps);
-  text-transform: uppercase;
-  line-height: 1.2;
-}
-
-.remote-player-title {
-  margin: 0;
-  color: var(--rep-ivory);
-  font-family: var(--rep-display);
-  font-size: var(--rep-remote-text-title);
-  font-weight: 500;
-  line-height: var(--rep-leading-display);
-  letter-spacing: var(--rep-tracking-display);
-  text-wrap: balance;
-}
-
-.remote-player-episode {
-  color: var(--rep-dim);
-  font-family: var(--rep-mono);
-  font-size: var(--rep-remote-text-mono);
-  line-height: 1.3;
-}
-
-.remote-player-note {
-  margin: 0;
-  color: var(--rep-dim);
-  font-family: var(--rep-sans);
-  font-size: var(--rep-remote-text-caption);
-  line-height: var(--rep-leading-caption);
-}
-
-.remote-player-state {
-  margin: 0;
-  color: var(--rep-house);
-  font-family: var(--rep-mono);
-  font-size: var(--rep-remote-text-mono);
-  line-height: 1.3;
-}
-
-/* The state note's lines: the sentence, then a torrent's status beneath it,
-   each on its own line, in the note's own colour as variant A draws them (#342). */
-.remote-player-state-lines {
-  display: flex;
-  flex-direction: column;
-  min-width: 0;
-}
-
-/* A Stalled Stream's note: the ring, then the sentence, in the house's ivory
-   rather than the opening note's brass (#333). */
-.remote-player-state[data-stalled="true"] {
-  display: flex;
-  align-items: center;
-  gap: var(--rep-space-2);
-  color: var(--rep-ivory);
-}
-
-.remote-player-state[data-stalled="true"] .rep-kit-spinner {
-  color: var(--rep-house);
-  font-size: 0.95rem;
-}
-
-/* The Autoplay switch row: hairline-boxed, one touch target tall, under the
-   transport cells and above the menu row (#318). */
-.remote-player-autoplay {
-  border: 1px solid var(--rep-hairline);
-}
-
-.remote-player-autoplay .rep-kit-switch {
-  min-height: var(--rep-remote-touch);
-  font-size: var(--rep-remote-text-control);
-}
-
-.remote-player-autoplay .rep-kit-switch-state {
-  font-size: var(--rep-remote-text-badge);
-}
-
-/* The countdown banner, where the ended note sits: the still with the digit,
-   the kicker and name, two full-width actions and the draining line (#318). */
-.remote-autoplay-banner {
-  position: relative;
-  display: grid;
-  grid-template-columns: 7rem minmax(0, 1fr);
-  gap: var(--rep-space-3);
-  padding: var(--rep-space-3);
-  border: 1px solid var(--rep-hairline);
-  border-top: 2px solid var(--rep-house);
-  background: var(--rep-ink-raised);
-}
-
-.remote-autoplay-still {
-  position: relative;
-  aspect-ratio: 16 / 9;
-  overflow: hidden;
-  background: var(--rep-ink);
-}
-
-.remote-autoplay-still img {
-  width: 100%;
-  height: 100%;
-  object-fit: cover;
-  opacity: 0.75;
-}
-
-.remote-autoplay-still span {
-  position: absolute;
-  inset: 0;
-  display: grid;
-  place-items: center;
-  background: color-mix(in srgb, var(--rep-ink) 45%, transparent);
-  color: var(--rep-ivory);
-  font-family: var(--rep-display);
-  font-size: 2.25rem;
-  line-height: 1;
-}
-
-.remote-autoplay-copy {
-  align-self: center;
-  min-width: 0;
-}
-
-.remote-autoplay-kicker {
-  display: flex;
-  align-items: center;
-  gap: var(--rep-space-3);
-  margin: 0;
-  color: var(--rep-house);
-  font-family: var(--rep-mono);
-  font-size: var(--rep-remote-text-badge);
-  letter-spacing: var(--rep-tracking-caps);
-  text-transform: uppercase;
-}
-
-.remote-autoplay-kicker > span:last-child {
-  color: var(--rep-muted);
+  clip: rect(0 0 0 0);
+  border: 0;
   white-space: nowrap;
 }
 
-.remote-autoplay-rule {
-  flex: 1;
-  min-width: var(--rep-space-5);
-  height: 1px;
-  background: var(--rep-hairline);
+.mq-remote-root .mq-c7-field-input {
+  min-height: 52px;
+  height: 52px;
+  padding: 0 14px;
+  border-radius: 12px;
+  font-size: 15px;
 }
 
-.remote-autoplay-name {
-  margin: var(--rep-space-1) 0 0;
-  color: var(--rep-ivory);
-  font-family: var(--rep-display);
-  font-size: var(--rep-remote-text-section);
-  line-height: 1.15;
+.mq-remote-root .mq-c7-field-error {
+  font-size: 12px;
 }
 
-.remote-autoplay-actions {
+.mq-remote-root .mq-pp-group-label {
+  margin: 0;
+  padding: 0;
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--mq-text-faint);
+}
+
+.mq-remote-root .mq-badge {
+  min-height: 20px;
+  padding: 0 7px;
+  border-radius: 6px;
+  font-size: 11px;
+  font-weight: 700;
+}
+
+.mq-remote-root .mq-ph-badge[data-tone="danger"] {
+  background: var(--mq-danger-tint);
+  color: #ff8e96;
+}
+
+.mq-remote-root .mq-c7-empty {
+  padding: 36px 20px;
+  gap: 10px;
+}
+
+.mq-remote-root .mq-c7-empty-title {
+  font-size: 18px;
+  font-weight: 800;
+}
+
+.mq-remote-root .mq-c7-empty-body {
+  font-size: 14px;
+  line-height: 20px;
+  max-width: 280px;
+}
+
+.mq-remote-root .mq-c7-ranked {
+  min-height: 60px;
+  padding: 8px 12px;
+  border-radius: 12px;
+  gap: 10px;
+}
+
+.mq-remote-root .mq-c7-ranked-disc {
+  width: 28px;
+  height: 28px;
+  border-radius: 8px;
+  font-size: 13px;
+}
+
+.mq-remote-root .mq-c7-ranked-label {
+  font-size: 15px;
+}
+
+.mq-remote-root .mq-c7-row-actions {
+  gap: 4px;
+}
+
+.mq-remote-root .mq-c7-ranked .mq-c7-icon-btn {
+  min-width: 44px;
+  width: 44px;
+  height: 44px;
+}
+
+.mq-remote-root .mq-pp-stepper {
+  width: 100%;
+  gap: 10px;
+}
+
+.mq-remote-root .mq-pp-stepper-track {
+  flex: 1 1 auto;
+  min-width: 0;
+  width: auto;
+  margin: 0;
+}
+
+.mq-remote-root .mq-pp-stepper .mq-pp-icon-btn {
+  min-width: 44px;
+  width: 44px;
+  height: 44px;
+  border-radius: 12px;
+}
+
+.mq-remote-root .mq-pp-stepper-value {
+  margin-left: 0;
+  font-size: 16px;
+  font-weight: 800;
+  min-width: 48px;
+  text-align: right;
+}
+
+.mq-remote-root .mq-c7-pairing {
+  display: grid;
+  justify-items: stretch;
+  width: 100%;
+  height: auto;
+  gap: 12px;
+  padding: 16px;
+  border-radius: 16px;
+  background: var(--mq-row-rest);
+  border: 1px solid var(--mq-line);
+}
+
+.mq-remote-root .mq-c7-pairing-code {
+  width: 100%;
+  padding: 0;
+}
+
+.mq-remote-root .mq-c7-pairing-cells {
+  display: grid;
+  grid-template-columns: repeat(6, minmax(0, 1fr));
+  gap: 6px;
+  margin-top: 10px;
+}
+
+.mq-remote-root .mq-c7-pairing-cell {
+  width: auto;
+  height: 56px;
+  padding-top: 0;
+  display: grid;
+  place-items: center;
+  border-radius: 10px;
+  font-size: 24px;
+  font-weight: 800;
+  line-height: 1;
+}
+
+.mq-remote-root .mq-c7-pairing-where {
+  width: 100%;
+  padding-top: 0;
+  justify-items: start;
+  text-align: left;
+}
+
+.mq-remote-root .mq-c7-pairing-address {
+  margin-top: 2px;
+  font-size: 16px;
+  line-height: 22px;
+}
+
+.mq-remote-root .mq-c7-pairing-note {
+  width: auto;
+  margin-top: 4px;
+  font-size: 13px;
+  line-height: 18px;
+}
+
+/* Bottom-anchored confirmation dialog (`P10c`, `P19b`) */
+.mq-remote-root .mq-c7-confirm-scrim {
+  position: fixed;
+  inset: 0;
+  z-index: 60;
   display: flex;
-  grid-column: 1 / -1;
-  gap: var(--rep-space-3);
+  align-items: flex-end;
+  justify-content: center;
+  padding: 16px 16px calc(16px + env(safe-area-inset-bottom));
+  background: rgb(5 6 10 / 0.72);
 }
 
-.remote-autoplay-actions > * {
-  flex: 1;
+.mq-remote-root .mq-c7-confirm {
+  width: 100%;
+  max-width: 420px;
+  padding: 22px 20px 20px;
+  border-radius: 24px;
+  background: var(--mq-surface);
+  border: 1px solid var(--mq-line);
+  display: grid;
+  gap: 12px;
 }
 
-.remote-autoplay-drain {
-  position: absolute;
-  right: 0;
-  bottom: 0;
-  left: 0;
-  height: 2px;
-  background: var(--rep-hairline);
+.mq-remote-root .mq-c7-confirm-title {
+  margin: 0;
+  font-size: 20px;
+  font-weight: 800;
+  line-height: 24px;
+  color: var(--mq-white);
 }
 
-.remote-autoplay-drain > span {
-  display: block;
-  height: 100%;
-  background: var(--rep-house);
-  transition: width 250ms linear;
+.mq-remote-root .mq-c7-confirm-body {
+  margin: 0;
+  font-size: 14px;
+  line-height: 20px;
+  color: var(--mq-text-muted);
 }
 
-@media (prefers-reduced-motion: reduce) {
-  .remote-autoplay-drain > span {
-    transition: none;
-  }
+.mq-remote-root .mq-c7-confirm-actions {
+  display: flex;
+  flex-direction: column-reverse;
+  gap: 10px;
+  margin-top: 6px;
 }
 
-.remote-player-timeline {
+.mq-remote-root .mq-c7-confirm-actions > * {
+  width: 100%;
+  min-height: 48px;
+  border-radius: 12px;
+  font-size: 15px;
+  font-weight: 700;
+}
+
+/* --------------------------------------------------------------------------
+ * Poster overlays (Watched / Unplayable marks cleanly composing PhonePoster)
+ * -------------------------------------------------------------------------- */
+
+.mq-remote-poster-slot {
   position: relative;
+  width: 116px;
+  flex: none;
+}
+
+.mq-remote-grid .mq-remote-poster-slot {
+  width: 100%;
+}
+
+.mq-remote-grid .mq-ph-poster {
+  width: 100%;
+  height: auto;
+  aspect-ratio: 2 / 3;
+}
+
+.mq-remote-poster-slot[data-unplayable="true"] .mq-ph-card-frame {
+  opacity: 0.45;
+}
+
+.mq-remote-poster-badge {
+  position: absolute;
+  top: 6px;
+  right: 6px;
+  pointer-events: none;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-height: 20px;
+  padding: 0 6px;
+  border-radius: 6px;
+  font-size: 10px;
+  font-weight: 700;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  background: rgb(10 11 15 / 0.85);
+  color: var(--mq-white);
+  border: 1px solid var(--mq-line);
+}
+
+.mq-remote-poster-badge[data-tone="accent"] {
+  background: color-mix(in srgb, var(--mq-accent) 88%, var(--mq-canvas));
+  color: var(--mq-ink);
+  border-color: transparent;
+}
+
+/* --------------------------------------------------------------------------
+ * Home (`P1`, `P2`)
+ * -------------------------------------------------------------------------- */
+
+.mq-remote-home {
   display: flex;
   flex-direction: column;
-  gap: var(--rep-space-2);
-  padding: var(--rep-space-2) 0 var(--rep-space-1);
+  gap: 16px;
+  padding-bottom: 24px;
 }
 
-.remote-player-track {
+.mq-remote-home-hero-wrap {
   position: relative;
-  height: 0.5rem;
-  background: var(--rep-hairline);
+  margin-bottom: -16px;
 }
 
-.remote-player-playhead {
+.mq-remote-home-brand {
   position: absolute;
-  top: -0.25rem;
-  width: 2px;
-  height: 1rem;
-  background: var(--rep-ivory);
-  transform: translateX(-1px);
-}
-
-.remote-player-chapter {
-  position: absolute;
-  top: -0.15rem;
-  width: 1px;
-  height: 0.8rem;
-  background: var(--rep-house);
-}
-
-.remote-player-scrubber,
-.remote-player-volume-slider {
-  accent-color: var(--rep-house);
-}
-
-.remote-player-scrubber {
-  position: absolute;
-  top: calc((0.5rem - var(--rep-remote-touch)) / 2);
-  right: 0;
-  left: 0;
-  width: 100%;
-  height: var(--rep-remote-touch);
-  margin: 0;
-  cursor: pointer;
-  background: transparent;
-  -webkit-appearance: none;
-  appearance: none;
-}
-
-.remote-player-scrubber::-webkit-slider-runnable-track {
-  height: 0.5rem;
-  background: transparent;
-}
-
-.remote-player-scrubber::-moz-range-track {
-  height: 0.5rem;
-  background: transparent;
-}
-
-.remote-player-scrubber::-webkit-slider-thumb {
-  width: 0.9rem;
-  height: 1.4rem;
-  margin-top: -0.45rem;
-  border: 0;
-  border-radius: 0;
-  background: var(--rep-ivory);
-  -webkit-appearance: none;
-  appearance: none;
-}
-
-.remote-player-scrubber::-moz-range-thumb {
-  width: 0.9rem;
-  height: 1.4rem;
-  border: 0;
-  border-radius: 0;
-  background: var(--rep-ivory);
-}
-
-.remote-player-scrubber:disabled {
-  cursor: default;
-}
-
-.remote-player-preview {
-  position: absolute;
-  bottom: calc(100% + var(--rep-space-2));
-  z-index: 2;
-  width: min(11rem, 45vw);
-  padding: 2px;
-  border: 1px solid var(--rep-hairline);
-  background: var(--rep-ink-raised);
-  transform: translateX(-50%);
+  top: calc(16px + env(safe-area-inset-top));
+  left: 16px;
+  z-index: 6;
   pointer-events: none;
 }
 
-.remote-player-preview-still {
-  display: block;
+.mq-remote-home-sticky {
+  position: sticky;
+  top: 0;
+  z-index: 20;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  min-height: calc(52px + env(safe-area-inset-top));
+  padding: env(safe-area-inset-top) 16px 0;
+  background: color-mix(in srgb, var(--mq-canvas) 88%, transparent);
+  backdrop-filter: blur(20px);
+  -webkit-backdrop-filter: blur(20px);
+  border-bottom: 1px solid var(--mq-line);
+}
+
+.mq-remote-home-sticky[data-compact="false"] {
+  display: none;
+}
+
+.mq-remote-home-sticky-title {
+  margin: 0;
+  font-size: 17px;
+  font-weight: 800;
+  color: var(--mq-white);
+}
+
+.mq-remote-row {
+  display: grid;
+  gap: 10px;
+}
+
+.mq-remote-row-head {
+  padding: 0 16px;
+}
+
+.mq-remote-track {
+  display: flex;
+  gap: 10px;
+  overflow-x: auto;
+  overflow-y: hidden;
+  padding: 2px 16px 4px;
+  scrollbar-width: none;
+}
+
+.mq-remote-track::-webkit-scrollbar {
+  display: none;
+}
+
+.mq-remote-track--wide {
+  gap: 12px;
+}
+
+.mq-remote-wide-slot {
+  display: grid;
+  gap: 6px;
+  width: 264px;
+  flex: none;
+}
+
+.mq-remote-wide-slot[data-unplayable="true"] .mq-ph-card-frame {
+  opacity: 0.45;
+}
+
+.mq-remote-row-note {
+  margin: 0;
+  padding: 0 16px;
+  font-size: 13px;
+  color: var(--mq-text-faint);
+}
+
+.mq-remote-row-notice {
+  padding: 0 16px;
+}
+
+/* --------------------------------------------------------------------------
+ * Discover & Library 3-column grid (`P7`, `P9`, `P9b`)
+ * -------------------------------------------------------------------------- */
+
+.mq-remote-filters {
+  display: flex;
+  gap: 8px;
+  padding: 0 16px 12px;
+}
+
+.mq-remote-chips {
+  display: flex;
+  flex-wrap: nowrap;
+  gap: 8px;
+  overflow-x: auto;
+  padding: 0 16px 12px;
+  scrollbar-width: none;
+}
+
+.mq-remote-chips::-webkit-scrollbar {
+  display: none;
+}
+
+.mq-remote-grid {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 5px;
+  padding: 0 16px 16px;
+}
+
+.mq-remote-grid-status {
+  margin: 8px 16px 0;
+  font-size: 13px;
+  color: var(--mq-text-muted);
+  text-align: center;
+}
+
+.mq-remote-gate {
+  margin: 4px 16px 24px;
+  padding: 20px 18px;
+  border-radius: 16px;
+  background: var(--mq-row-rest);
+  border: 1px solid var(--mq-line);
+  display: grid;
+  gap: 14px;
+}
+
+.mq-remote-gate-title {
+  margin: 0;
+  font-size: 18px;
+  font-weight: 800;
+  color: var(--mq-white);
+}
+
+.mq-remote-gate-body {
+  margin: 0;
+  font-size: 14px;
+  line-height: 20px;
+  color: var(--mq-text-muted);
+}
+
+/* --------------------------------------------------------------------------
+ * Search (`P8`)
+ * -------------------------------------------------------------------------- */
+
+.mq-remote-search-bar {
+  position: sticky;
+  top: 0;
+  z-index: 20;
+  padding: calc(12px + env(safe-area-inset-top)) 16px 12px;
+  background: color-mix(in srgb, var(--mq-canvas) 90%, transparent);
+  backdrop-filter: blur(18px);
+  -webkit-backdrop-filter: blur(18px);
+}
+
+.mq-remote-search-results {
+  display: grid;
+  gap: 22px;
+  padding: 8px 0 24px;
+}
+
+.mq-remote-read-on {
+  padding: 4px 16px 0;
+}
+
+/* --------------------------------------------------------------------------
+ * Title & Streams (`P5`, `P5b`, `P6`)
+ * -------------------------------------------------------------------------- */
+
+.mq-remote-title-level {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  padding-bottom: 32px;
+}
+
+.mq-remote-title-top {
+  position: fixed;
+  top: 0;
+  left: 0;
+  right: 0;
+  z-index: 28;
+  pointer-events: none;
+}
+
+.mq-remote-title-back {
+  position: absolute;
+  top: calc(14px + env(safe-area-inset-top));
+  left: 16px;
+  pointer-events: auto;
+  background: rgb(10 11 15 / 0.56);
+  backdrop-filter: blur(12px);
+  -webkit-backdrop-filter: blur(12px);
+  border: 1px solid rgb(255 255 255 / 0.14);
+}
+
+.mq-remote-title-sticky {
+  pointer-events: auto;
+}
+
+.mq-remote-title-hero {
+  position: relative;
+  height: 260px;
+  overflow: hidden;
+  background: var(--mq-canvas);
+}
+
+.mq-remote-title-hero-art {
   width: 100%;
-  aspect-ratio: 16 / 9;
+  height: 100%;
   object-fit: cover;
-}
-
-.remote-player-preview[data-pending="true"] .remote-player-preview-still {
-  opacity: 0.6;
-}
-
-.remote-player-preview-time,
-.remote-player-preview-chapter {
   display: block;
-  padding: 2px var(--rep-space-1);
-  color: var(--rep-dim);
-  font-family: var(--rep-mono);
-  font-size: var(--rep-remote-text-badge);
-  line-height: 1.3;
 }
 
-.remote-player-preview-chapter {
-  color: var(--rep-muted);
+.mq-remote-title-hero-scrim-top {
+  position: absolute;
+  inset: 0 0 auto;
+  height: 120px;
+  background: linear-gradient(180deg, rgb(10 11 15 / 0.72) 0%, transparent 100%);
+  pointer-events: none;
 }
 
-.remote-player-clocks {
+.mq-remote-title-hero-scrim-bottom {
+  position: absolute;
+  inset: auto 0 0;
+  height: 150px;
+  background: linear-gradient(180deg, transparent 0%, var(--mq-canvas) 100%);
+  pointer-events: none;
+}
+
+.mq-remote-title-hero-copy {
+  position: relative;
+  z-index: 3;
+  margin-top: -64px;
+  padding: 0 16px;
+  display: grid;
+  justify-items: center;
+  gap: 10px;
+  text-align: center;
+}
+
+.mq-remote-title-logo {
+  max-width: 280px;
+  max-height: 76px;
+  width: auto;
+  height: auto;
+  object-fit: contain;
+}
+
+.mq-remote-title-name {
+  margin: 0;
+  font-size: 28px;
+  font-weight: 800;
+  line-height: 34px;
+  color: var(--mq-white);
+}
+
+.mq-remote-title-facts {
+  margin: 0;
+  font-size: 13px;
+  font-weight: 500;
+  color: var(--mq-text-muted);
+}
+
+.mq-remote-title-body {
+  position: relative;
+  z-index: 3;
+  padding: 14px 16px 0;
+  display: grid;
+  gap: 16px;
+}
+
+.mq-remote-title-actions {
+  display: grid;
+  gap: 10px;
+}
+
+.mq-remote-title-actions .mq-ph-button {
+  width: 100%;
+}
+
+.mq-remote-title-synopsis {
+  margin: 0;
+  font-size: 15px;
+  line-height: 22px;
+  color: var(--mq-text-muted);
+}
+
+.mq-remote-title-meta-note {
+  margin: 0;
+  font-size: 13px;
+  line-height: 18px;
+  color: var(--mq-text-faint);
+}
+
+.mq-remote-title-episodes {
+  display: grid;
+  gap: 12px;
+  margin-top: 4px;
+}
+
+.mq-remote-episodes-list {
+  display: grid;
+  gap: 10px;
+}
+
+.mq-remote-streams {
+  display: grid;
+  align-content: start;
+  gap: 14px;
+  padding-bottom: 32px;
+}
+
+.mq-remote-streams-body {
+  padding: 0 16px;
+  display: grid;
+  gap: 16px;
+}
+
+.mq-remote-streams-group {
+  display: grid;
+  gap: 10px;
+}
+
+.mq-remote-streams-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: grid;
+  gap: 10px;
+}
+
+.mq-remote-stream-slot {
+  display: grid;
+}
+
+.mq-remote-root .mq-ph.mq-ph-stream {
+  height: 118px;
+}
+
+.mq-remote-root .mq-ph-stream-name {
+  top: 10px;
+  line-height: 18px;
+  max-height: 36px;
+}
+
+.mq-remote-root .mq-ph-stream-details {
+  top: 56px;
+}
+
+.mq-remote-root .mq-ph-stream-marks {
+  top: 80px;
+}
+
+/* --------------------------------------------------------------------------
+ * Addons (`P10`, `P10b`, `P10d`)
+ * -------------------------------------------------------------------------- */
+
+.mq-remote-addons-form {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-items: start;
+  gap: 8px;
+}
+
+.mq-remote-addons-submit {
+  width: 52px;
+  height: 52px;
+  min-width: 52px;
+  min-height: 52px;
+  border-radius: 12px;
+}
+
+.mq-remote-addons-list {
+  display: grid;
+  gap: 12px;
+}
+
+.mq-remote-addons-hint {
+  margin: 0;
+  font-size: 12px;
+  line-height: 18px;
+  color: var(--mq-text-faint);
+  text-align: center;
+}
+
+.mq-remote-addon-card {
+  padding: 16px;
+  border-radius: 14px;
+  background: var(--mq-row-rest);
+  border: 1px solid var(--mq-line);
+  display: grid;
+  gap: 10px;
+}
+
+.mq-remote-facts-card {
+  border-radius: 14px;
+  background: var(--mq-row-rest);
+  border: 1px solid var(--mq-line);
+  overflow: hidden;
+}
+
+.mq-remote-fact-row {
   display: flex;
   align-items: baseline;
   justify-content: space-between;
-  color: var(--rep-muted);
-  font-family: var(--rep-mono);
-  font-size: var(--rep-remote-text-mono);
-  line-height: 1.2;
+  gap: 16px;
+  padding: 13px 16px;
+  border-bottom: 1px solid var(--mq-line);
 }
 
-.remote-player-transport {
+.mq-remote-fact-row:last-child {
+  border-bottom: 0;
+}
+
+.mq-remote-fact-label {
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--mq-text-muted);
+  flex: none;
+}
+
+.mq-remote-fact-value {
+  font-size: 14px;
+  font-weight: 600;
+  color: var(--mq-white);
+  text-align: right;
+  word-break: break-word;
+}
+
+.mq-remote-addon-order {
   display: grid;
-  grid-template-columns: repeat(6, minmax(0, 1fr));
-  gap: var(--rep-space-1);
+  grid-template-columns: 1fr 1fr;
+  gap: 10px;
 }
 
-.remote-player-transport .remote-player-icon {
-  width: 100%;
-  min-width: 0;
-  padding: 0;
-}
+/* --------------------------------------------------------------------------
+ * Settings (`P11`, `P12`, `P14`, `P15`, `P16`, `P17`, `P18`, `P19`, `P20`)
+ * -------------------------------------------------------------------------- */
 
-/* The five plates the card opens: one icon each, at the same hand-sized target
-   as the transport, above the volume box. */
-.remote-player-menus {
+.mq-remote-settings-group {
   display: grid;
-  grid-template-columns: repeat(5, minmax(0, 1fr));
-  gap: var(--rep-space-1);
+  gap: 8px;
 }
 
-.remote-player-menus .remote-player-icon {
-  width: 100%;
-  min-width: 0;
-  padding: 0;
-}
-
-.remote-player-volume {
+.mq-remote-list-card {
   display: grid;
-  grid-template-columns: auto minmax(0, 1fr) auto;
+  gap: 8px;
+}
+
+.mq-remote-follow-card {
+  padding: 16px;
+  border-radius: 14px;
+  background: var(--mq-accent-soft);
+  border: 1px solid color-mix(in srgb, var(--mq-accent) 42%, transparent);
+  display: grid;
+  gap: 4px;
+}
+
+.mq-remote-follow-title {
+  margin: 0;
+  font-size: 15px;
+  font-weight: 700;
+  color: var(--mq-white);
+}
+
+.mq-remote-follow-body {
+  margin: 0;
+  font-size: 13px;
+  line-height: 18px;
+  color: var(--mq-text-muted);
+}
+
+.mq-remote-preview-frame {
+  position: relative;
+  aspect-ratio: 16 / 9;
+  border-radius: 14px;
+  overflow: hidden;
+  border: 1px solid var(--mq-line);
+  background:
+    radial-gradient(circle at 30% 35%, color-mix(in srgb, var(--mq-accent) 18%, transparent), transparent 62%),
+    linear-gradient(180deg, #1b1e29 0%, #0d0f15 100%);
+  display: flex;
+  align-items: flex-end;
+  justify-content: center;
+  padding: 16px;
+}
+
+.mq-remote-preview-sample {
+  margin: 0;
+  text-align: center;
+  font-weight: 700;
+  line-height: 1.3;
+  text-shadow: 0 2px 6px rgb(0 0 0 / 0.9);
+  max-width: 92%;
+}
+
+.mq-remote-sub-chips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.mq-remote-device-row {
+  display: flex;
   align-items: center;
-  gap: var(--rep-space-3);
-  padding: var(--rep-space-2) var(--rep-space-3);
-  border: 1px solid var(--rep-hairline);
+  justify-content: space-between;
+  gap: 12px;
+  padding: 12px 14px;
+  border-radius: 14px;
+  background: var(--mq-row-rest);
+  border: 1px solid var(--mq-line);
 }
 
-.remote-player-volume-level {
-  min-width: 2.6em;
-  color: var(--rep-ivory);
-  font-family: var(--rep-mono);
-  font-size: var(--rep-remote-text-mono);
-  line-height: 1.2;
+.mq-remote-device-info {
+  min-width: 0;
+  display: grid;
+  gap: 2px;
 }
 
-.remote-player-volume-slider {
-  width: 100%;
-  min-height: var(--rep-remote-touch);
+.mq-remote-device-name {
+  font-size: 15px;
+  font-weight: 700;
+  color: var(--mq-white);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.mq-remote-device-detail {
+  font-size: 12px;
+  color: var(--mq-text-muted);
+}
+
+.mq-remote-device-detail[data-current="true"] {
+  color: var(--mq-accent);
+  font-weight: 600;
+}
+
+.mq-remote-about-tmdb {
+  padding: 18px 16px;
+  border-radius: 14px;
+  background: var(--mq-row-rest);
+  border: 1px solid var(--mq-line);
+  display: grid;
+  gap: 12px;
+}
+
+.mq-remote-tmdb-logo {
+  width: 140px;
+  height: auto;
+  display: block;
+}
+
+.mq-remote-about-copy {
+  margin: 0;
+  font-size: 13px;
+  line-height: 20px;
+  color: var(--mq-text-muted);
+}
+
+.mq-remote-action-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
 }
