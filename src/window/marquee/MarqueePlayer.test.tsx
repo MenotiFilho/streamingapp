@@ -2639,7 +2639,7 @@ describe("the docked transport, where the picture is elsewhere", () => {
     expect(screen.queryByTestId("shell-osd")).not.toBeInTheDocument();
   });
 
-  test("is reachable from the page by the D-pad, and a pushed Level keeps it", async () => {
+  test("is reachable from the page by the D-pad", async () => {
     const host = await renderDock("own_window");
     const browsing = await screen.findByRole("button", { name: "Open Addons" });
     // The harness needs a box for the base's own control; the layout spy reads
