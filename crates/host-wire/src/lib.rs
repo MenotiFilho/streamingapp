@@ -48,4 +48,4 @@ mod server;
 pub use discovery::{
     host_name, service, Advertisement, Discovery, DiscoveryError, Mdns, NoDiscovery, SERVICE_TYPE,
 };
-pub use server::{Broadcast, Server, Subscription, Surface, DEFAULT_PORT};
+pub use server::{Broadcast, Server, Subscription, Surface, DEFAULT_PORT, QUESTION_WORKERS};

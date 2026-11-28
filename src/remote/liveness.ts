@@ -26,11 +26,12 @@ export const LIVENESS = {
   /** Quiet this long with nothing asked, the socket is dead. */
   deadAfter: 30_000,
   /**
-   * Quiet this long while a command is on its way. The Host reads one frame at
-   * a time on a connection, and an Addon may take its whole 30-second fetch
-   * timeout, so a busy Host and a dead socket look alike for longer.
+   * Quiet this long while a command is on its way. Questions resolve off the
+   * Host's connection thread so a greeting is answered promptly even behind a
+   * slow Addon, while a slow Change (such as adding an Addon or resuming across
+   * Addons) still runs on it up to the 30-second fetch timeout.
    */
-  deadWhileAskingAfter: 90_000,
+  deadWhileAskingAfter: 45_000,
   /**
    * A page looked at again greets at once, and something must come back this
    * soon. Generous, because a phone's radio takes a moment to come back from
@@ -82,7 +83,7 @@ export function onWake(facts: WakeFacts): LivenessMove {
     return "none";
   }
   // A greeting on an unpaired connection could land behind a pairing and undo
-  // it, and one queued behind a command in flight is late without being lost.
+  // it, and a Change in flight on the connection thread can exceed `probeWait`.
   if (facts.ready && facts.asking === 0) {
     return "probe";
   }
@@ -107,18 +108,19 @@ export function onTick(facts: TickFacts): LivenessMove {
   if (facts.hidden || facts.socket !== "open") {
     return "none";
   }
-  if (facts.asking > 0) {
-    return facts.quietFor >= LIVENESS.deadWhileAskingAfter ? "replace" : "none";
-  }
+  const deadAfter =
+    facts.asking > 0 ? LIVENESS.deadWhileAskingAfter : LIVENESS.deadAfter;
   // The Host pushes nothing to a connection that has not paired, and the gate
-  // is not greeted (see `onWake`), so its silence is not evidence of anything.
-  if (!facts.ready) {
+  // is not greeted (see `onWake`), so its silence is not evidence of anything —
+  // unless a pairing attempt itself never comes back.
+  if (!facts.ready && facts.asking === 0) {
     return "none";
   }
-  if (facts.quietFor >= LIVENESS.deadAfter) {
+  if (facts.quietFor >= deadAfter) {
     return "replace";
   }
   if (
+    facts.ready &&
     facts.quietFor >= LIVENESS.greetAfter &&
     facts.sinceGreeting >= LIVENESS.greetAfter
   ) {

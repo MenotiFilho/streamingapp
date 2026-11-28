@@ -4,17 +4,19 @@
 //! Nothing below the Action surface is named: this is the second client's door,
 //! and what it proves is that it is the same door (ADR-0002).
 
+use std::collections::HashMap;
 use std::io::{Read, Write};
 use std::net::TcpStream;
-use std::sync::Arc;
+use std::sync::atomic::{AtomicUsize, Ordering};
+use std::sync::{mpsc, Arc, Mutex};
 use std::time::Duration;
 
 use host_core::{
-    Action, ActionError, AddonProvider, DeviceSummary, DeviceToken, FixtureClock, FixtureFetcher,
-    FixturePlayer, Host, HostDoor, InMemorySecretStore, InMemoryStore, Response, RevisionSink,
-    Snapshot, WIRE_VERSION,
+    Action, ActionError, AddonProvider, DeviceSummary, DeviceToken, FetchError, Fetcher,
+    FixtureClock, FixtureFetcher, FixturePlayer, Host, HostDoor, InMemorySecretStore,
+    InMemoryStore, Response, RevisionSink, Snapshot, WIRE_VERSION,
 };
-use host_wire::{Broadcast, Server, Surface};
+use host_wire::{Broadcast, Server, Surface, QUESTION_WORKERS};
 use serde_json::{json, Value};
 use tungstenite::stream::MaybeTlsStream;
 use tungstenite::{connect, Message, WebSocket};
@@ -29,8 +31,8 @@ struct Fixture {
 }
 
 impl Fixture {
-    /// A Host over the fixtures a test recorded, with a clock it can move.
-    fn over(fetcher: Arc<FixtureFetcher>) -> Arc<Self> {
+    /// A Host over any [`Fetcher`], such as one that gates specific URLs.
+    fn over(fetcher: Arc<dyn Fetcher>) -> Arc<Self> {
         let store = Arc::new(InMemoryStore::new());
         let clock = Arc::new(FixtureClock::new());
         let provider = Arc::new(AddonProvider::new(fetcher.clone()));
@@ -98,11 +100,27 @@ fn server() -> (Arc<Fixture>, Server) {
 }
 
 fn server_over(fetcher: Arc<FixtureFetcher>) -> (Arc<Fixture>, Server) {
+    server_over_fetcher(fetcher)
+}
+
+fn server_over_fetcher(fetcher: Arc<dyn Fetcher>) -> (Arc<Fixture>, Server) {
     let fixture = Fixture::over(fetcher);
     let server = Server::start(
         fixture.clone(),
         fixture.broadcast.clone(),
         "127.0.0.1:0".parse().expect("a loopback address"),
+    )
+    .expect("the Host can bind a loopback port");
+    (fixture, server)
+}
+
+fn server_with_ping(fetcher: Arc<dyn Fetcher>, ping_every: Duration) -> (Arc<Fixture>, Server) {
+    let fixture = Fixture::over(fetcher);
+    let server = Server::start_with_ping(
+        fixture.clone(),
+        fixture.broadcast.clone(),
+        "127.0.0.1:0".parse().expect("a loopback address"),
+        ping_every,
     )
     .expect("the Host can bind a loopback port");
     (fixture, server)
@@ -196,6 +214,11 @@ impl Client {
     /// The next frame, which the Host must send.
     fn next(&mut self) -> Value {
         self.read().expect("the Host is still answering")
+    }
+
+    /// The next raw WebSocket message, including control frames such as `Ping`.
+    fn next_raw(&mut self) -> Message {
+        self.socket.read().expect("the Host is still answering")
     }
 
     /// Greet the Host, and hand back what it said this connection is.
@@ -1262,4 +1285,432 @@ fn set_addon_enabled_broadcasts_the_change_and_refuses_open_title_while_disabled
 
     let opened = client.command(6, open_movie());
     assert_eq!(opened["response"]["answer"]["title"]["name"], "The Matrix");
+}
+
+struct ActiveGuard<'a>(&'a AtomicUsize);
+
+impl Drop for ActiveGuard<'_> {
+    fn drop(&mut self) {
+        self.0.fetch_sub(1, Ordering::SeqCst);
+    }
+}
+
+/// A [`Fetcher`] whose recorded URLs can be held behind per-URL gates so
+/// tests control concurrency and completion order without wall-clock sleeps.
+struct BlockingFetcher {
+    inner: FixtureFetcher,
+    gates: Mutex<HashMap<String, mpsc::Receiver<()>>>,
+    entered_tx: mpsc::Sender<String>,
+    active: AtomicUsize,
+    peak: AtomicUsize,
+}
+
+impl BlockingFetcher {
+    fn new(inner: FixtureFetcher) -> (Arc<Self>, mpsc::Receiver<String>) {
+        let (entered_tx, entered_rx) = mpsc::channel();
+        let fetcher = Arc::new(Self {
+            inner,
+            gates: Mutex::new(HashMap::new()),
+            entered_tx,
+            active: AtomicUsize::new(0),
+            peak: AtomicUsize::new(0),
+        });
+        (fetcher, entered_rx)
+    }
+
+    fn gate(&self, url: &str) -> mpsc::Sender<()> {
+        let (tx, rx) = mpsc::channel();
+        self.gates
+            .lock()
+            .expect("gates lock")
+            .insert(url.to_owned(), rx);
+        tx
+    }
+}
+
+impl Fetcher for BlockingFetcher {
+    fn fetch_with_headers(
+        &self,
+        url: &str,
+        headers: &[(&str, &str)],
+    ) -> Result<String, FetchError> {
+        let gate = self.gates.lock().expect("gates lock").remove(url);
+        if let Some(rx) = gate {
+            let now = self.active.fetch_add(1, Ordering::SeqCst) + 1;
+            self.peak.fetch_max(now, Ordering::SeqCst);
+            let _guard = ActiveGuard(&self.active);
+            let _ = self.entered_tx.send(url.to_owned());
+            let _ = rx.recv();
+        }
+        self.inner.fetch_with_headers(url, headers)
+    }
+}
+
+#[test]
+fn a_blocking_question_does_not_delay_a_change_on_the_same_connection() {
+    let (fetcher, entered_rx) = BlockingFetcher::new(
+        FixtureFetcher::new()
+            .serving(MANIFEST_URL, MANIFEST)
+            .serving(MOVIE_URL, MOVIE),
+    );
+    let (fixture, server) = server_over_fetcher(fetcher.clone());
+    let mut client = Client::connect(&server);
+    client.hello(None);
+    pair(&mut client, &fixture, "Phone");
+    client.command(3, json!({ "type": "add_addon", "url": MANIFEST_URL }));
+
+    let release_question = fetcher.gate(MOVIE_URL);
+    client.send(json!({
+        "version": WIRE_VERSION,
+        "id": 10,
+        "command": open_movie(),
+    }));
+    assert_eq!(
+        entered_rx
+            .recv_timeout(Duration::from_secs(2))
+            .expect("the question enters its worker fetch"),
+        MOVIE_URL
+    );
+
+    client.send(json!({
+        "version": WIRE_VERSION,
+        "id": 11,
+        "command": { "type": "set_subtitle_languages", "languages": ["pt-BR"] },
+    }));
+
+    let first_reply = loop {
+        let frame = client.next();
+        if frame.get("id").is_some() {
+            break frame;
+        }
+    };
+    assert_eq!(
+        first_reply["id"], 11,
+        "the change's Reply arrives before the blocked question: {first_reply}"
+    );
+    assert!(first_reply.get("response").is_some());
+
+    release_question
+        .send(())
+        .expect("release the blocked question");
+    let question_reply = loop {
+        let frame = client.next();
+        if frame.get("id").and_then(Value::as_u64) == Some(10) {
+            break frame;
+        }
+    };
+    assert_eq!(
+        question_reply["response"]["answer"]["title"]["name"],
+        "The Matrix"
+    );
+}
+
+#[test]
+fn a_greeting_while_a_question_is_in_flight_is_answered_promptly_with_welcome() {
+    let (fetcher, entered_rx) = BlockingFetcher::new(
+        FixtureFetcher::new()
+            .serving(MANIFEST_URL, MANIFEST)
+            .serving(MOVIE_URL, MOVIE),
+    );
+    let (fixture, server) = server_over_fetcher(fetcher.clone());
+    let mut client = Client::connect(&server);
+    client.hello(None);
+    let (_device, token) = pair(&mut client, &fixture, "Phone");
+    client.command(3, json!({ "type": "add_addon", "url": MANIFEST_URL }));
+
+    let release_question = fetcher.gate(MOVIE_URL);
+    client.send(json!({
+        "version": WIRE_VERSION,
+        "id": 10,
+        "command": open_movie(),
+    }));
+    assert_eq!(
+        entered_rx
+            .recv_timeout(Duration::from_secs(2))
+            .expect("the question enters its worker fetch"),
+        MOVIE_URL
+    );
+
+    client.send(json!({ "version": WIRE_VERSION, "hello": { "token": token } }));
+
+    let mut saw_welcome = false;
+    let mut saw_snapshot = false;
+    while !saw_welcome || !saw_snapshot {
+        let frame = client.next();
+        assert_ne!(
+            frame.get("id").and_then(Value::as_u64),
+            Some(10),
+            "Welcome and its Snapshot arrive before the blocked question's Reply: {frame}"
+        );
+        if let Some(welcome) = frame.get("welcome") {
+            assert_eq!(welcome["device"]["name"], "Phone");
+            saw_welcome = true;
+        }
+        if frame.get("snapshot").is_some() {
+            saw_snapshot = true;
+        }
+    }
+
+    release_question
+        .send(())
+        .expect("release the blocked question");
+    let question_reply = loop {
+        let frame = client.next();
+        if frame.get("id").and_then(Value::as_u64) == Some(10) {
+            break frame;
+        }
+    };
+    assert_eq!(
+        question_reply["response"]["answer"]["title"]["name"],
+        "The Matrix"
+    );
+}
+
+#[test]
+fn pushed_snapshots_and_pings_keep_flowing_while_a_question_is_in_flight() {
+    let (fetcher, entered_rx) = BlockingFetcher::new(
+        FixtureFetcher::new()
+            .serving(MANIFEST_URL, MANIFEST)
+            .serving(MOVIE_URL, MOVIE),
+    );
+    let (fixture, server) = server_with_ping(fetcher.clone(), Duration::from_millis(50));
+    let mut client = Client::connect(&server);
+    client.hello(None);
+    pair(&mut client, &fixture, "Phone");
+    client.command(3, json!({ "type": "add_addon", "url": MANIFEST_URL }));
+    client.snapshot_where(|snapshot| {
+        snapshot["addons"]
+            .as_array()
+            .is_some_and(|addons| !addons.is_empty())
+    });
+
+    let release_question = fetcher.gate(MOVIE_URL);
+    client.send(json!({
+        "version": WIRE_VERSION,
+        "id": 10,
+        "command": open_movie(),
+    }));
+    assert_eq!(
+        entered_rx
+            .recv_timeout(Duration::from_secs(2))
+            .expect("the question enters its worker fetch"),
+        MOVIE_URL
+    );
+
+    fixture.publish_change(action(
+        r#"{"type":"set_subtitle_languages","languages":["fr"]}"#,
+    ));
+
+    let mut saw_snapshot = false;
+    let mut saw_ping = false;
+    while !saw_snapshot || !saw_ping {
+        match client.next_raw() {
+            Message::Ping(_) => {
+                saw_ping = true;
+            }
+            Message::Text(text) => {
+                let frame: Value = serde_json::from_str(&text).expect("valid JSON frame");
+                assert_ne!(
+                    frame.get("id").and_then(Value::as_u64),
+                    Some(10),
+                    "Snapshots and pings arrive while the question is still blocked: {frame}"
+                );
+                if frame
+                    .get("snapshot")
+                    .is_some_and(|s| s["preferences"]["subtitleLanguages"] == json!(["fr"]))
+                {
+                    saw_snapshot = true;
+                }
+            }
+            Message::Close(frame) => panic!("connection closed unexpectedly: {frame:?}"),
+            _ => {}
+        }
+    }
+
+    release_question
+        .send(())
+        .expect("release the blocked question");
+    let question_reply = loop {
+        let frame = client.next();
+        if frame.get("id").and_then(Value::as_u64) == Some(10) {
+            break frame;
+        }
+    };
+    assert_eq!(
+        question_reply["response"]["answer"]["title"]["name"],
+        "The Matrix"
+    );
+}
+
+#[test]
+fn two_changes_sent_back_to_back_are_applied_in_order() {
+    let fetcher = Arc::new(FixtureFetcher::new().serving(MANIFEST_URL, MANIFEST));
+    let (fixture, server) = server_over(fetcher);
+    let mut client = Client::connect(&server);
+    client.hello(None);
+    pair(&mut client, &fixture, "Phone");
+
+    // `set_addon_enabled` depends on `add_addon` having already landed; two
+    // subtitle-language writes pin final state order.
+    client.send(json!({
+        "version": WIRE_VERSION,
+        "id": 10,
+        "command": { "type": "add_addon", "url": MANIFEST_URL },
+    }));
+    client.send(json!({
+        "version": WIRE_VERSION,
+        "id": 11,
+        "command": {
+            "type": "set_addon_enabled",
+            "addon": "com.linvo.cinemeta",
+            "enabled": false,
+        },
+    }));
+    client.send(json!({
+        "version": WIRE_VERSION,
+        "id": 12,
+        "command": { "type": "set_subtitle_languages", "languages": ["pt-BR"] },
+    }));
+    client.send(json!({
+        "version": WIRE_VERSION,
+        "id": 13,
+        "command": { "type": "set_subtitle_languages", "languages": ["en"] },
+    }));
+
+    let mut ids = Vec::new();
+    while ids.len() < 4 {
+        let frame = client.next();
+        if let Some(id) = frame.get("id").and_then(Value::as_u64) {
+            assert!(
+                frame.get("response").is_some(),
+                "change {id} succeeded in arrival order: {frame}"
+            );
+            ids.push(id);
+        }
+    }
+    assert_eq!(ids, vec![10, 11, 12, 13]);
+
+    let final_state = fixture.snapshot();
+    assert!(!final_state.addons[0].enabled);
+    assert_eq!(
+        final_state
+            .preferences
+            .subtitle_languages
+            .iter()
+            .map(|l| l.as_str())
+            .collect::<Vec<_>>(),
+        vec!["en"]
+    );
+}
+
+#[test]
+fn flooding_questions_beyond_the_worker_limit_queues_without_spawning_more_threads() {
+    let total = QUESTION_WORKERS + 2;
+    let mut inner = FixtureFetcher::new().serving(MANIFEST_URL, MANIFEST);
+    let mut urls = Vec::with_capacity(total);
+    for idx in 0..total {
+        let tt_id = format!("tt013309{idx}");
+        let url = format!("https://v3-cinemeta.strem.io/meta/movie/{tt_id}.json");
+        let body = format!(r#"{{"meta":{{"id":"{tt_id}","type":"movie","name":"Movie {idx}"}}}}"#);
+        inner = inner.serving(&url, body);
+        urls.push((tt_id, url));
+    }
+
+    let (fetcher, entered_rx) = BlockingFetcher::new(inner);
+    let mut gates: HashMap<String, mpsc::Sender<()>> = urls
+        .iter()
+        .map(|(_id, url)| (url.clone(), fetcher.gate(url)))
+        .collect();
+
+    let (fixture, server) = server_over_fetcher(fetcher.clone());
+    let mut client = Client::connect(&server);
+    client.hello(None);
+    pair(&mut client, &fixture, "Phone");
+    client.command(3, json!({ "type": "add_addon", "url": MANIFEST_URL }));
+
+    for (idx, (tt_id, _url)) in urls.iter().enumerate() {
+        client.send(json!({
+            "version": WIRE_VERSION,
+            "id": 10 + idx as u64,
+            "command": {
+                "type": "open_title",
+                "addon": "com.linvo.cinemeta",
+                "title": { "type": "movie", "id": tt_id },
+            },
+        }));
+    }
+    // Sent after the flood: proves the connection loop read and queued every
+    // question without blocking on the full worker pool.
+    client.send(json!({
+        "version": WIRE_VERSION,
+        "id": 99,
+        "command": { "type": "set_subtitle_languages", "languages": ["es"] },
+    }));
+
+    let change_reply = loop {
+        let frame = client.next();
+        if frame.get("id").is_some() {
+            break frame;
+        }
+    };
+    assert_eq!(
+        change_reply["id"], 99,
+        "the change after the question flood answers while the worker pool is saturated"
+    );
+
+    let mut in_flight = Vec::with_capacity(QUESTION_WORKERS);
+    for _ in 0..QUESTION_WORKERS {
+        in_flight.push(
+            entered_rx
+                .recv_timeout(Duration::from_secs(2))
+                .expect("up to QUESTION_WORKERS enter concurrently"),
+        );
+    }
+    assert_eq!(fetcher.active.load(Ordering::SeqCst), QUESTION_WORKERS);
+    assert_eq!(fetcher.peak.load(Ordering::SeqCst), QUESTION_WORKERS);
+    assert!(
+        entered_rx.try_recv().is_err(),
+        "questions past QUESTION_WORKERS wait in the queue"
+    );
+
+    // Unblock two workers and observe the two queued questions enter without
+    // raising peak concurrency past QUESTION_WORKERS.
+    for url in in_flight.drain(..2) {
+        gates
+            .remove(&url)
+            .expect("gate exists")
+            .send(())
+            .expect("unblock");
+    }
+    for _ in 0..2 {
+        in_flight.push(
+            entered_rx
+                .recv_timeout(Duration::from_secs(2))
+                .expect("queued questions enter as workers free up"),
+        );
+    }
+    assert_eq!(fetcher.peak.load(Ordering::SeqCst), QUESTION_WORKERS);
+
+    for url in in_flight {
+        gates
+            .remove(&url)
+            .expect("gate exists")
+            .send(())
+            .expect("unblock");
+    }
+
+    let mut answered = Vec::new();
+    while answered.len() < total {
+        let frame = client.next();
+        if let Some(id) = frame.get("id").and_then(Value::as_u64) {
+            assert!(
+                frame.get("response").is_some(),
+                "queued question {id} succeeds: {frame}"
+            );
+            answered.push(id);
+        }
+    }
+    answered.sort_unstable();
+    let expected: Vec<u64> = (10..10 + total as u64).collect();
+    assert_eq!(answered, expected);
 }

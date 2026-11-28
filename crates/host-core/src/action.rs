@@ -524,6 +524,26 @@ impl Action {
         Ok(envelope.action)
     }
 
+    /// Whether this Action asks the Host something rather than changing it.
+    ///
+    /// Mirrors [`ValidatedAction::is_question`] so the wire transport can route
+    /// questions off the connection thread without classifying on its own
+    /// (ADR-0022).
+    pub fn is_question(&self) -> bool {
+        matches!(
+            self,
+            Self::BrowseCatalog { .. }
+                | Self::SearchCatalogs { .. }
+                | Self::Discover { .. }
+                | Self::Search { .. }
+                | Self::OpenTitle { .. }
+                | Self::OpenDiscoveredTitle { .. }
+                | Self::FindStreams { .. }
+                | Self::Preview { .. }
+                | Self::Library
+        )
+    }
+
     /// The pure step ahead of mutation.
     ///
     /// Everything the Host can judge from the Action alone is judged here, and the
@@ -2562,11 +2582,17 @@ mod tests {
             .iter()
             .filter(|body| {
                 let envelope = format!(r#"{{"version":{ACTION_VERSION},"action":{body}}}"#);
-                Action::parse(&envelope)
-                    .expect("a listed Action parses")
+                let action = Action::parse(&envelope).expect("a listed Action parses");
+                let raw = action.is_question();
+                let validated = action
                     .validate()
                     .expect("a listed Action validates")
-                    .is_question()
+                    .is_question();
+                assert_eq!(
+                    raw, validated,
+                    "Action::is_question and ValidatedAction::is_question agree on {body}"
+                );
+                validated
             })
             .map(|body| action_spelling(body))
             .collect();

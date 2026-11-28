@@ -23,8 +23,8 @@ describe("a page looked at again", () => {
   });
 
   test("does not ask while a command is on its way", () => {
-    // The Host answers one frame at a time: a greeting queued behind a slow
-    // question is not late, and a deadline would call it dead.
+    // A Change in flight on the connection thread can exceed `probeWait`, so a
+    // greeting while asking uses `onTick`'s longer deadline instead.
     expect(onWake({ ...AWAKE, asking: 1 })).toBe("none");
   });
 
@@ -67,20 +67,36 @@ describe("the link's own clock", () => {
     ).toBe("replace");
   });
 
-  test("waits longer while a command is on its way, and does not greet", () => {
-    // An Addon may take its whole fetch timeout, and the Host reads the
-    // connection's frames in order: silence while asking is often a busy Host.
+  test("greets while a command is on its way, and waits longer before replacing", () => {
+    // Questions run off the connection thread so a greeting is answered promptly
+    // while slow Addon fetches are in flight; `deadWhileAskingAfter` stays
+    // above `deadAfter` (and below the old 90 s workaround) for a slow Change.
+    expect(LIVENESS.deadWhileAskingAfter).toBeGreaterThan(LIVENESS.deadAfter);
+    expect(LIVENESS.deadWhileAskingAfter).toBeLessThan(90_000);
+    expect(
+      onTick({
+        ...QUIET,
+        asking: 2,
+        quietFor: LIVENESS.greetAfter,
+        sinceGreeting: LIVENESS.greetAfter,
+      }),
+    ).toBe("greet");
     expect(
       onTick({
         ...QUIET,
         asking: 2,
         quietFor: LIVENESS.deadAfter,
-        sinceGreeting: LIVENESS.deadAfter,
+        sinceGreeting: 5_000,
       }),
     ).toBe("none");
-    expect(onTick({ ...QUIET, asking: 2, quietFor: LIVENESS.deadWhileAskingAfter })).toBe(
-      "replace",
-    );
+    expect(
+      onTick({
+        ...QUIET,
+        asking: 2,
+        quietFor: LIVENESS.deadWhileAskingAfter,
+        sinceGreeting: 5_000,
+      }),
+    ).toBe("replace");
   });
 
   test("leaves a hidden page, an opening socket and an unpaired idle one alone", () => {
