@@ -166,10 +166,14 @@ width instead**, never a fixed `1920u` or `1792u` reference frame:
   `--mq-margin-full`: horizontal rows reveal more cards as the window widens, and
   poster grids add columns (`posterGridColumns` in `src/core/marqueeLayout.ts`)
   while cards keep their `u` dimensions.
-- **Form and list panes** (Search bar, Addons, Settings) expand across the
-  available pane width up to `--mq-margin-full`, and **right-anchored panels**
-  (Streams side panel, player floating menus, Up next / Still watching) anchor to
-  the trailing margin while keeping their own component widths in `u`.
+- **Form and list containers** (Search bar, Library sign-in, Addons form and
+  list, Settings panes, Pairing card, device rows, account card, facts) keep a
+  readable measure (`880u` for single-column rows, forms and cards; `1060u` for
+  the Addons install form) while their C7 primitives fill `100%` of the owner,
+  so labels stay close to their switches and trailing controls on ultrawide
+  displays; **right-anchored panels** (Streams side panel, player floating
+  menus, Up next / Still watching) anchor to the trailing margin while keeping
+  their own component widths in `u`.
 
 **Depth** comes from three things, and only these: a **shadow** under what is
 focused or floating (offset y 12–30, blur 2.2× the offset, black at 40–55%), the

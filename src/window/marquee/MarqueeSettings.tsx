@@ -527,7 +527,7 @@ function RemoteDevicesPane() {
       <h2 className="mq-settings-cat-title">Remote devices</h2>
 
       {snapshot ? (
-        <div data-testid="pairing">
+        <div className="mq-settings-pairing" data-testid="pairing">
           <PairingCode code={snapshot.pairingCode} address={snapshot.address} />
         </div>
       ) : (
