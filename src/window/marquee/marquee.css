@@ -246,7 +246,7 @@ body.picture-behind .mq-nav-slot {
 }
 
 .mq-home-row--continue {
-  margin-bottom: calc(var(--mq-u) * 28);
+  margin-bottom: 0;
 }
 
 .mq-home-row-head {
@@ -279,7 +279,7 @@ body.picture-behind .mq-nav-slot {
   gap: calc(var(--mq-u) * 40);
   margin-top: calc(var(--mq-u) * -8);
   padding-top: calc(var(--mq-u) * 24);
-  padding-bottom: calc(var(--mq-u) * 32);
+  padding-bottom: calc(var(--mq-u) * 16);
 }
 
 .mq-row-track--poster {

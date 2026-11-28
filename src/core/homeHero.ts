@@ -16,6 +16,9 @@ import type { Action, ContinueEntry, MetaPreview, Snapshot } from "./wire";
 /** How many Featured catalog items Marquee's rotating hero cycles through (`01.jpg`). */
 export const MARQUEE_HERO_SLIDES = 5;
 
+/** How many items each Catalog rail on Marquee Home displays. */
+export const HOME_RAIL_ITEMS = 20;
+
 /** The two modes of the Home hero (`docs/design-system.md` §8). */
 export type MarqueeHeroMode = "rotating" | "following";
 

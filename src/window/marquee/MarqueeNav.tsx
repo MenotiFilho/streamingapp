@@ -1,7 +1,6 @@
 import { useEffect, useRef, useState } from "react";
 
-import { formatNavClock, railOpensOn, railShouldExpand } from "../../core/homeHero";
-import { inputModality } from "../../core/inputModality";
+import { formatNavClock, railShouldExpand } from "../../core/homeHero";
 import { useInputModality } from "../../core/react/useInputModality";
 import { NavRail } from "../../kit/marquee/NavRail";
 import type { Destination } from "../navigation";
@@ -19,8 +18,6 @@ function useNow(): Date {
 export type MarqueeNavProps = {
   active: Destination;
   onChoose: (destination: Destination) => void;
-  /** Called when navigation focus lands inside the rail. */
-  onFocusEnter?: () => void;
 };
 
 /**
@@ -28,7 +25,7 @@ export type MarqueeNavProps = {
  * tracks hover and ADR-0037 navigation-focus expansion, and passes the current
  * clock into the `NavRail` kit primitive.
  */
-export function MarqueeNav({ active, onChoose, onFocusEnter }: MarqueeNavProps) {
+export function MarqueeNav({ active, onChoose }: MarqueeNavProps) {
   const now = useNow();
   const modality = useInputModality();
   const region = useRef<HTMLDivElement | null>(null);
@@ -55,9 +52,6 @@ export function MarqueeNav({ active, onChoose, onFocusEnter }: MarqueeNavProps) 
       onMouseLeave={() => setHovered(false)}
       onFocus={() => {
         setFocusedInRail(true);
-        if (railOpensOn(inputModality())) {
-          onFocusEnter?.();
-        }
       }}
       onKeyDown={(event) => {
         if (event.key.startsWith("Arrow")) {

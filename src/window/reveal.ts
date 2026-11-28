@@ -176,6 +176,8 @@ export type RevealScrollport = {
   moves: boolean;
   /** Whether this port may move horizontally; the page never does. */
   horizontal?: boolean;
+  /** Whether this port may move vertically; screens that own their own scroll spring set this false. */
+  vertical?: boolean;
   /** Whether this port holds an anchor element, such as a row's head. */
   contains?: (element: Element) => boolean;
   /** Apply the deltas; the browser clamps them at the port's own ends. */
@@ -219,6 +221,9 @@ export function revealIn(
         : revealOffsets(viewport, measureRect(target), REVEAL_MARGIN, port.insetTop, held);
     if (port.horizontal === false) {
       offsets.left = 0;
+    }
+    if (port.vertical === false) {
+      offsets.top = 0;
     }
     if (offsets.left !== 0 || offsets.top !== 0) {
       port.scrollBy(offsets.left, offsets.top);
@@ -286,12 +291,17 @@ function fixedBetween(control: Element, port: Element): boolean {
   return false;
 }
 
+function verticalScrollAllowed(control: Element): boolean {
+  return control.closest("[data-reveal-axis]")?.getAttribute("data-reveal-axis") !== "x";
+}
+
 function portOf(element: Element, control: Element): RevealScrollport {
   return {
     visible: () => visibleBox(element),
     insetTop: chromeInset(element),
     moves: !fixedBetween(control, element),
     horizontal: scrollsHorizontally(element),
+    vertical: verticalScrollAllowed(control),
     contains: (held) => element.contains(held),
     scrollBy: (left, top) => {
       if (left !== 0) {

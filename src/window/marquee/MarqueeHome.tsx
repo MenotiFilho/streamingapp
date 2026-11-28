@@ -15,6 +15,7 @@ import { catalogKey, declaredCatalogs, keyOf, type DeclaredCatalog } from "../..
 import { explain } from "../../core/errors";
 import { addonLabel, featuredRow } from "../../core/home";
 import {
+  HOME_RAIL_ITEMS,
   MARQUEE_HERO_SLIDES,
   heroDisplayFor,
   heroModeForFocus,
@@ -59,11 +60,15 @@ import { RowHeader } from "../../kit/marquee/RowHeader";
 import { WideCard } from "../../kit/marquee/WideCard";
 import { useShell } from "../context";
 import { FOCUSABLE } from "../layout";
-import { HOME_RAIL_ITEMS } from "../repertory/homeProgramme";
 import { useLookHints } from "../repertory/lookHint";
 import { focusAndReveal } from "../reveal";
 import { useTitleOpener } from "../TitleScreen";
-import { rowsShiftTransition } from "./frame";
+import {
+  clampRowsScrollTop,
+  followingRowsViewportHeight,
+  marqueeUnitPx,
+  rowsShiftTransition,
+} from "./frame";
 
 /**
  * Marquee Home (`01.jpg`–`03.jpg`, `docs/design-system.md` §8):
@@ -232,16 +237,19 @@ export function MarqueeHome() {
     if (!port) {
       return;
     }
-    const targetTop =
-      focusedRowId === null
-        ? 0
-        : Math.max(
-            0,
-            Math.min(
-              rowNodes.current.get(focusedRowId)?.offsetTop ?? 0,
-              Math.max(0, port.scrollHeight - port.clientHeight),
-            ),
-          );
+    const unitPx = marqueeUnitPx(window.innerWidth, window.innerHeight);
+    const viewportHeight = followingRowsViewportHeight({
+      hasHeroStage,
+      homeHeight: root.current?.clientHeight ?? 0,
+      portClientHeight: port.clientHeight,
+      unitPx,
+    });
+    const targetTop = clampRowsScrollTop({
+      focusedRowId,
+      rowOffsetTop: focusedRowId ? (rowNodes.current.get(focusedRowId)?.offsetTop ?? 0) : 0,
+      scrollHeight: port.scrollHeight,
+      viewportHeight,
+    });
     scrollAnim.current?.stop();
     if (calm) {
       port.scrollTop = targetTop;
@@ -260,10 +268,17 @@ export function MarqueeHome() {
       scrollAnim.current?.stop();
       scrollAnim.current = null;
     };
-  }, [calm, focusedRowId]);
+  }, [calm, focusedRowId, hasHeroStage]);
 
   useLayoutEffect(() => {
-    if (!pendingHeroFocus.current || heroMode !== "rotating" || !watchNowButton.current) {
+    if (!pendingHeroFocus.current) {
+      return;
+    }
+    if (heroMode !== "rotating" || !hasFeatured) {
+      pendingHeroFocus.current = false;
+      return;
+    }
+    if (!watchNowButton.current) {
       return;
     }
     pendingHeroFocus.current = false;
@@ -390,6 +405,7 @@ export function MarqueeHome() {
       ref={root}
       className="mq-home"
       data-testid="home-screen"
+      data-reveal-axis="x"
       data-has-hero={hasHeroStage ? "true" : "false"}
       data-hero-mode={hasHeroStage ? heroMode : undefined}
     >

@@ -41,6 +41,48 @@ export function isSettingsLeaf(level: Pick<ShellLevel, "id"> | null | undefined)
   return level?.id.startsWith(SETTINGS_LEVEL_PREFIX) ?? false;
 }
 
+/** Top offset of the Home rows viewport in following mode, in reference units (`marquee.css`). */
+export const FOLLOWING_ROWS_TOP_U = 480;
+
+/** Reference-frame unit `--mq-u` in CSS pixels (`tokens.css`). */
+export function marqueeUnitPx(viewportWidth: number, viewportHeight: number): number {
+  if (viewportWidth <= 0 || viewportHeight <= 0) {
+    return 1;
+  }
+  return Math.max(0.5, Math.min(viewportWidth, viewportHeight * (16 / 9)) / 1920);
+}
+
+/**
+ * Settled height of `.mq-home-rows` in `following` mode, so a `rotating` ->
+ * `following` scroll clamp uses the `600u` destination viewport rather than
+ * the mid-transition `444u` rotating height.
+ */
+export function followingRowsViewportHeight(params: {
+  hasHeroStage: boolean;
+  homeHeight: number;
+  portClientHeight: number;
+  unitPx: number;
+}): number {
+  if (!params.hasHeroStage || params.homeHeight <= 0) {
+    return params.portClientHeight;
+  }
+  return Math.max(0, params.homeHeight - FOLLOWING_ROWS_TOP_U * params.unitPx);
+}
+
+/** Clamp the Home rows vertical scroll target to `[0, scrollHeight - viewportHeight]`. */
+export function clampRowsScrollTop(params: {
+  focusedRowId: string | null;
+  rowOffsetTop: number;
+  scrollHeight: number;
+  viewportHeight: number;
+}): number {
+  if (params.focusedRowId === null) {
+    return 0;
+  }
+  const maxScroll = Math.max(0, params.scrollHeight - params.viewportHeight);
+  return Math.max(0, Math.min(params.rowOffsetTop, maxScroll));
+}
+
 /** How the Home rows shift up/down between rotating and following hero modes. */
 export function rowsShiftTransition(calm: boolean): Transition {
   return {

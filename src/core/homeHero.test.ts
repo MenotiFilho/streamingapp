@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 
 import type { Row } from "./browse";
 import {
+  HOME_RAIL_ITEMS,
   MARQUEE_HERO_SLIDES,
   formatNavClock,
   heroDisplayFor,
@@ -136,6 +137,10 @@ describe("Marquee nav rail expansion decisions (ADR-0037)", () => {
 });
 
 describe("Marquee hero mode, rotation and following focus", () => {
+  it("caps each catalog rail at twenty items", () => {
+    expect(HOME_RAIL_ITEMS).toBe(20);
+  });
+
   it("keeps up to five featured slides", () => {
     expect(MARQUEE_HERO_SLIDES).toBe(5);
     const slides = marqueeHeroSlides(

@@ -1,8 +1,11 @@
 import { act, fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { MotionConfig } from "motion/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
 import { HomeStore } from "../../core/homeStore";
+import type { Intent } from "../../core/input";
 import { FEATURE_ROTATION_MS } from "../../core/homeProgramme";
+import { markNavigation } from "../../core/inputModality";
 import { LOOK_HINT_DWELL_MS } from "../../core/lookHint";
 import type {
   Action,
@@ -14,6 +17,7 @@ import type {
 } from "../../core/wire";
 import { ShellContext, type ActionOutcome, type NewShellLevel, type ShellContextValue } from "../context";
 import { quietSession } from "../session.testing";
+import { MarqueeFrame } from "./MarqueeFrame";
 import { MarqueeHome } from "./MarqueeHome";
 import { MarqueeRehearsalEntry } from "./MarqueeRehearsalEntry";
 
@@ -170,7 +174,7 @@ function renderHome({
   const take = vi.fn(async (_action: Action) => null);
   const hint = vi.fn();
   const choose = vi.fn();
-  let registeredIntent: ((intent: "up" | "down" | "left" | "right" | "activate" | "back") => boolean) | null =
+  let registeredIntent: ((intent: Intent) => boolean) | null =
     null;
 
   const value: ShellContextValue = {
@@ -207,9 +211,9 @@ function renderHome({
     }),
   };
 
-  render(
+  const rendered = render(
     <ShellContext.Provider value={value}>
-      <MarqueeHome />
+      <MarqueeHome key="home" />
     </ShellContext.Provider>,
   );
 
@@ -220,6 +224,13 @@ function renderHome({
     choose,
     ask,
     value,
+    rerenderWithSnapshot: (nextSnapshot: Snapshot | null, extra?: React.ReactNode) =>
+      rendered.rerender(
+        <ShellContext.Provider value={{ ...value, snapshot: nextSnapshot }}>
+          {extra}
+          <MarqueeHome key="home" />
+        </ShellContext.Provider>,
+      ),
     sendIntent: (intent: "up" | "down" | "left" | "right" | "activate" | "back") =>
       registeredIntent ? registeredIntent(intent) : false,
   };
@@ -446,6 +457,145 @@ describe("Marquee Home following focus and Up return", () => {
     await waitFor(() =>
       expect(document.activeElement).toBe(screen.getByRole("button", { name: "Watch now" })),
     );
+  });
+
+  it("clears pendingHeroFocus when Featured disappears so re-enabling Featured does not steal focus", async () => {
+    const { rerenderWithSnapshot, sendIntent } = renderHome({
+      snapshot: { ...BASE_SNAPSHOT, continueWatching: [resumeEntry()] },
+      chosenDestination: false,
+    });
+    await flush();
+
+    const continueCard = screen.getByTestId("resume-tt10:2:4");
+    act(() => continueCard.focus());
+    expect(heroMode()).toBe("following");
+
+    // Trigger Up return while Featured disappears in the same commit: Watch now
+    // is absent so pendingHeroFocus must be cleared rather than held.
+    act(() => {
+      expect(sendIntent("up")).toBe(true);
+      rerenderWithSnapshot({
+        ...BASE_SNAPSHOT,
+        featuredCatalog: null,
+        continueWatching: [resumeEntry()],
+      });
+    });
+
+    expect(screen.queryByRole("button", { name: "Watch now" })).not.toBeInTheDocument();
+
+    // Move focus to a non-row control (e.g. the nav rail) so heroMode stays
+    // "rotating" when Featured returns and Watch now mounts.
+    rerenderWithSnapshot(
+      {
+        ...BASE_SNAPSHOT,
+        featuredCatalog: null,
+        continueWatching: [resumeEntry()],
+      },
+      <button type="button" data-testid="rail-home">Rail Home</button>,
+    );
+    const railHome = screen.getByTestId("rail-home");
+    act(() => railHome.focus());
+    expect(document.activeElement).toBe(railHome);
+
+    // Re-enabling Featured mounts Watch now in rotating mode; the cleared
+    // pendingHeroFocus must not steal focus from the rail.
+    rerenderWithSnapshot(
+      {
+        ...BASE_SNAPSHOT,
+        continueWatching: [resumeEntry()],
+      },
+      <button type="button" data-testid="rail-home">Rail Home</button>,
+    );
+
+    expect(screen.getByRole("button", { name: "Watch now" })).toBeInTheDocument();
+    expect(heroMode()).toBe("rotating");
+    expect(document.activeElement).toBe(railHome);
+  });
+
+  it("suppresses vertical reveal on Home rows and clamps scrollTop against the following viewport height", async () => {
+    markNavigation();
+    const home = new HomeStore(firstPage);
+    let registeredIntent: ((intent: Intent) => boolean) | null =
+      null;
+    const value: ShellContextValue = {
+      session: quietSession(),
+      snapshot: { ...BASE_SNAPSHOT, continueWatching: [resumeEntry()] },
+      error: null,
+      destination: "home",
+      chosenDestination: true,
+      popover: null,
+      unplayable: new Set<string>(),
+      pending: new Set<string>(),
+      markUnplayable: vi.fn(),
+      choose: vi.fn(),
+      push: vi.fn(() => "l1"),
+      remove: vi.fn(),
+      levelExists: vi.fn(() => true),
+      pop: vi.fn(),
+      back: vi.fn(),
+      ask: firstPage,
+      take: vi.fn(async () => null),
+      hint: vi.fn(),
+      home,
+      setIntentHandler: vi.fn(),
+      setBaseIntentHandler: vi.fn((handler) => {
+        registeredIntent = handler as typeof registeredIntent;
+        return () => {
+          if (registeredIntent === handler) {
+            registeredIntent = null;
+          }
+        };
+      }),
+    };
+
+    const originalInnerWidth = window.innerWidth;
+    const originalInnerHeight = window.innerHeight;
+    Object.defineProperty(window, "innerWidth", { value: 1920, configurable: true });
+    Object.defineProperty(window, "innerHeight", { value: 1080, configurable: true });
+
+    try {
+      render(
+        <MotionConfig reducedMotion="always">
+          <ShellContext.Provider value={value}>
+            <MarqueeFrame
+              destination="home"
+              onChooseDestination={() => {}}
+              levels={[]}
+              onBack={() => {}}
+              onBaseIntent={(intent) => registeredIntent?.(intent) ?? false}
+              screen={<MarqueeHome />}
+            />
+          </ShellContext.Provider>
+        </MotionConfig>,
+      );
+      await flush();
+
+      const homeScreen = screen.getByTestId("home-screen");
+      const rowsPort = homeScreen.querySelector(".mq-home-rows") as HTMLElement;
+      const catalogRow = screen.getByTestId("home-row-cinemeta/movie/top");
+      const card = screen.getByTestId("card-cinemeta-tt1");
+
+      Object.defineProperty(homeScreen, "clientHeight", { value: 1080, configurable: true });
+      // Simulate mid-transition rotating clientHeight (444u) before --mq-rows-shift finishes.
+      Object.defineProperty(rowsPort, "clientHeight", { value: 444, configurable: true });
+      Object.defineProperty(rowsPort, "scrollHeight", { value: 840, configurable: true });
+      Object.defineProperty(catalogRow, "offsetTop", { value: 367, configurable: true });
+      rowsPort.getBoundingClientRect = () =>
+        ({ left: 0, top: 636, right: 1920, bottom: 1080, width: 1920, height: 444, x: 0, y: 636, toJSON: () => ({}) } as DOMRect);
+      card.getBoundingClientRect = () =>
+        ({ left: 168, top: 1060, right: 376, bottom: 1372, width: 208, height: 312, x: 168, y: 1060, toJSON: () => ({}) } as DOMRect);
+
+      // Move focus to the card via navigation modality: reveal() runs under data-reveal="center"
+      // on MarqueeFrame, must NOT jump rowsPort.scrollTop via reveal(), and MarqueeHome's effect
+      // clamps 367 against the 600u following viewport (840 - 600 = 240, not 840 - 444 = 396).
+      act(() => card.focus());
+
+      expect(rowsPort.scrollTop).toBe(240);
+      expect(document.documentElement.scrollTop).toBe(0);
+    } finally {
+      Object.defineProperty(window, "innerWidth", { value: originalInnerWidth, configurable: true });
+      Object.defineProperty(window, "innerHeight", { value: originalInnerHeight, configurable: true });
+    }
   });
 });
 

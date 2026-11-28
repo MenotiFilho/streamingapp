@@ -9,13 +9,17 @@ import type { Destination, ShellLevel } from "../navigation";
 import { CHROME_CLEARANCE } from "../reveal";
 import {
   DESTINATION_FADE_SECONDS,
+  FOLLOWING_ROWS_TOP_U,
   LEVEL_PUSH_PX,
   MARQUEE_RULES,
   POPOVER_RISE_PX,
+  clampRowsScrollTop,
   destinationTransition,
+  followingRowsViewportHeight,
   isSettingsLeaf,
   levelPushed,
   levelRises,
+  marqueeUnitPx,
   rowsShiftTransition,
 } from "./frame";
 import { MarqueeFrame } from "./MarqueeFrame";
@@ -114,6 +118,51 @@ describe("Marquee frame decisions (ADR-0032)", () => {
       chromeExit: "hero",
       rowEntry: "first",
     });
+  });
+
+  test("clamps Home rows scroll against the settled 600u following viewport height", () => {
+    expect(FOLLOWING_ROWS_TOP_U).toBe(480);
+    expect(marqueeUnitPx(1920, 1080)).toBe(1);
+    expect(marqueeUnitPx(1280, 720)).toBeCloseTo(2 / 3, 5);
+    expect(marqueeUnitPx(800, 600)).toBe(0.5);
+
+    // During rotating -> following, port.clientHeight is still 444u while the
+    // settled following viewport is 1080 - 480 = 600u.
+    const viewportHeight = followingRowsViewportHeight({
+      hasHeroStage: true,
+      homeHeight: 1080,
+      portClientHeight: 444,
+      unitPx: 1,
+    });
+    expect(viewportHeight).toBe(600);
+    expect(
+      clampRowsScrollTop({
+        focusedRowId: "home-row:cinemeta:movie:top",
+        rowOffsetTop: 367,
+        scrollHeight: 840,
+        viewportHeight,
+      }),
+    ).toBe(240);
+
+    // Without a hero stage (or before layout), falls back to portClientHeight.
+    expect(
+      followingRowsViewportHeight({
+        hasHeroStage: false,
+        homeHeight: 1080,
+        portClientHeight: 1080,
+        unitPx: 1,
+      }),
+    ).toBe(1080);
+
+    // Returning to rotating hero resets scrollTop to 0.
+    expect(
+      clampRowsScrollTop({
+        focusedRowId: null,
+        rowOffsetTop: 367,
+        scrollHeight: 840,
+        viewportHeight: 600,
+      }),
+    ).toBe(0);
   });
 });
 
