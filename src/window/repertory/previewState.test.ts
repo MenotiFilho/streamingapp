@@ -1,9 +1,12 @@
 import { describe, expect, it } from "vitest";
 
-import type { AddonManifest } from "../../core/wire";
+import type { AddonManifest, ContinueEntry } from "../../core/wire";
 import {
+  addonDisabled,
   manifestFrom,
   PREVIEW_DEVICES,
+  publishedFeaturedCatalog,
+  reconcileUnplayable,
   removedAddon,
   reorderedAddons,
 } from "./previewState";
@@ -124,5 +127,39 @@ describe("the preview's paired devices", () => {
   it("keeps the sample devices named as previews", () => {
     expect(PREVIEW_DEVICES.length).toBeGreaterThan(0);
     expect(PREVIEW_DEVICES.every((device) => device.name.includes("(preview)"))).toBe(true);
+  });
+});
+
+describe("the preview's Addon enable/disable mirror (ADR-0044 §2)", () => {
+  it("hides featuredCatalog while its Addon is disabled and restores it when re-enabled", () => {
+    const featured = { addon: CINEMETA.id, catalog: { type: "movie", id: "top" } };
+    expect(publishedFeaturedCatalog(featured, [CINEMETA, TORRENTIO])).toEqual(featured);
+    expect(
+      publishedFeaturedCatalog(featured, [{ ...CINEMETA, enabled: false }, TORRENTIO]),
+    ).toBeNull();
+    expect(publishedFeaturedCatalog(featured, [TORRENTIO])).toBeNull();
+    expect(addonDisabled([{ ...CINEMETA, enabled: false }], CINEMETA.id)).toBe(true);
+    expect(addonDisabled([CINEMETA], CINEMETA.id)).toBe(false);
+  });
+
+  it("marks Continue watching entries addon_disabled or addon_removed and clears on re-enable", () => {
+    const entry: ContinueEntry = {
+      video: { id: "tt1", name: null, season: null, episode: null, thumbnail: null, airDate: null },
+      title: { addon: CINEMETA.id, id: "tt1", type: "movie", name: "One", poster: null },
+      position: 100,
+      duration: 1000,
+      watched: false,
+      upNext: false,
+      unplayable: null,
+    };
+
+    expect(
+      reconcileUnplayable([entry], [{ ...CINEMETA, enabled: false }])[0]?.unplayable,
+    ).toEqual({ reason: "addon_disabled", addon: CINEMETA.id });
+    expect(reconcileUnplayable([entry], [])[0]?.unplayable).toEqual({
+      reason: "addon_removed",
+      addon: CINEMETA.id,
+    });
+    expect(reconcileUnplayable([entry], [CINEMETA])[0]?.unplayable).toBeNull();
   });
 });

@@ -1,6 +1,8 @@
 import { destinationLabel } from "../../core/navigation";
 import type { Destination } from "../navigation";
+import { MarqueeAddons } from "./MarqueeAddons";
 import { MarqueeHome } from "./MarqueeHome";
+import { MarqueeSettings } from "./MarqueeSettings";
 export { MarqueeStreamsLoader, MarqueeStreamsScreen } from "./MarqueeStreams";
 export {
   MarqueeTitleLoading,
@@ -35,11 +37,13 @@ export function MarqueeDestinationScreen({ destination }: { destination: Destina
   switch (destination) {
     case "home":
       return <MarqueeHome />;
+    case "addons":
+      return <MarqueeAddons />;
+    case "settings":
+      return <MarqueeSettings />;
     case "discover":
     case "search":
     case "library":
-    case "addons":
-    case "settings":
       return <MarqueePlaceholder destination={destination} />;
   }
 }
