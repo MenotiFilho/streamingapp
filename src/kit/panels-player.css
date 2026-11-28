@@ -1256,12 +1256,32 @@ html[data-input="navigation"] .mq-pp-volume:focus .mq-pp-volume-knob,
 
 .mq-pp-stepper-track {
   position: relative;
+  display: flex;
   flex: none;
+  align-items: center;
   width: calc(var(--mq-u) * 172);
-  height: calc(var(--mq-u) * 6);
+  height: calc(var(--mq-u) * 32);
   margin: 0 calc(var(--mq-u) * 12);
+  cursor: pointer;
+  touch-action: none;
+}
+
+.mq-pp-stepper-track[data-focusable]:focus {
+  outline: none;
+  box-shadow: none;
+}
+
+.mq-pp-stepper-track[aria-disabled="true"] {
+  cursor: default;
+}
+
+.mq-pp-stepper-rail {
+  position: relative;
+  width: 100%;
+  height: calc(var(--mq-u) * 6);
   border-radius: var(--mq-radius-full);
   background: var(--mq-seek-track);
+  transition: height var(--mq-motion-quick) var(--mq-ease);
 }
 
 .mq-pp-stepper-level {
@@ -1281,6 +1301,22 @@ html[data-input="navigation"] .mq-pp-volume:focus .mq-pp-volume-knob,
   border-radius: var(--mq-radius-full);
   background: var(--mq-white);
   transform: translate(-50%, -50%);
+  transition:
+    width var(--mq-motion-quick) var(--mq-ease),
+    height var(--mq-motion-quick) var(--mq-ease),
+    box-shadow var(--mq-motion-fade) var(--mq-ease);
+}
+
+html[data-input="navigation"] .mq-pp-stepper-track:focus .mq-pp-stepper-rail,
+.mq-pp-stepper-track[data-focused="true"] .mq-pp-stepper-rail {
+  height: calc(var(--mq-u) * 8);
+}
+
+html[data-input="navigation"] .mq-pp-stepper-track:focus .mq-pp-stepper-knob,
+.mq-pp-stepper-track[data-focused="true"] .mq-pp-stepper-knob {
+  width: calc(var(--mq-u) * 24);
+  height: calc(var(--mq-u) * 24);
+  box-shadow: inset 0 0 0 calc(var(--mq-u) * 3) var(--mq-accent);
 }
 
 .mq-pp-stepper-value {

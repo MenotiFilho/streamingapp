@@ -2,7 +2,6 @@ import { useEffect, useRef, useState } from "react";
 
 import { actionKey } from "../core/actionKey";
 import { answeredStreams } from "../core/answers";
-import { stepScale } from "../core/controls";
 import { episodesOf } from "../core/episodes";
 import { explain, type ActionError } from "../core/errors";
 import { addonLabel } from "../core/home";
@@ -180,8 +179,8 @@ function SubtitlesSheet(props: SheetProps) {
   const subtitles = marqueeSubtitleOptions(playback);
   const audio = marqueeAudioOptions(playback);
   const scale = state.snapshot?.preferences.subtitleScale ?? 1;
-  const resizing = ([-1, 1] as const).some((direction) =>
-    pending({ type: "set_subtitle_scale", scale: stepScale(scale, direction) }),
+  const resizing = Array.from(state.pending).some((key) =>
+    key.includes('"set_subtitle_scale"'),
   );
 
   return (

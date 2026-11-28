@@ -376,6 +376,31 @@ describe("Marquee Preferences sub-levels (23 – 26)", () => {
     await waitFor(() =>
       expect(actions(ask)).toContainEqual({ type: "set_subtitle_scale", scale: 0.95 }),
     );
+
+    const slider = within(subView.container).getByRole("slider", { name: "Subtitle size" });
+    fireEvent.keyDown(slider, { key: "ArrowRight" });
+    await waitFor(() =>
+      expect(actions(ask).filter((a) => a.type === "set_subtitle_scale")).toHaveLength(3),
+    );
+    vi.spyOn(slider, "getBoundingClientRect").mockReturnValue({
+      left: 0,
+      width: 200,
+      right: 200,
+      top: 0,
+      bottom: 32,
+      height: 32,
+      x: 0,
+      y: 0,
+      toJSON: () => ({}),
+    });
+    fireEvent.pointerDown(slider, { clientX: 50, button: 0, pointerId: 1 });
+    fireEvent.pointerMove(slider, { clientX: 200, pointerId: 1 });
+    expect(actions(ask).filter((a) => a.type === "set_subtitle_scale")).toHaveLength(3);
+    fireEvent.pointerUp(slider, { clientX: 200, pointerId: 1 });
+    await waitFor(() =>
+      expect(actions(ask)).toContainEqual({ type: "set_subtitle_scale", scale: 3 }),
+    );
+    expect(actions(ask).filter((a) => a.type === "set_subtitle_scale")).toHaveLength(4);
     subView.unmount();
 
     // Bounds check at 25% and 300%.

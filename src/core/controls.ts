@@ -163,6 +163,14 @@ export const SUBTITLE_SCALE_STEP = appearance.step;
 /** The Host's default subtitle scale (100%). */
 export const SUBTITLE_SCALE_DEFAULT = 1;
 
+function scaleBoundsPct(): { minPct: number; maxPct: number; stepPct: number } {
+  return {
+    minPct: Math.round(SUBTITLE_SCALE_MIN * 100),
+    maxPct: Math.round(SUBTITLE_SCALE_MAX * 100),
+    stepPct: Math.round(SUBTITLE_SCALE_STEP * 100),
+  };
+}
+
 /**
  * The scale one 5% stepper press from `scale`, in `direction` (`1` up, `-1`
  * down), clamped to `SUBTITLE_SCALE_MIN..=SUBTITLE_SCALE_MAX` (ADR-0044 §5).
@@ -176,15 +184,28 @@ export function stepScale(scale: number, direction: -1 | 1): number {
   if (!Number.isFinite(scale)) {
     return SUBTITLE_SCALE_DEFAULT;
   }
-  const minPct = Math.round(SUBTITLE_SCALE_MIN * 100);
-  const maxPct = Math.round(SUBTITLE_SCALE_MAX * 100);
-  const stepPct = Math.round(SUBTITLE_SCALE_STEP * 100);
+  const { minPct, maxPct, stepPct } = scaleBoundsPct();
   const pct = scale * 100;
   const nextPct =
     direction > 0
       ? Math.floor((pct + 1e-4) / stepPct) * stepPct + stepPct
       : Math.ceil((pct - 1e-4) / stepPct) * stepPct - stepPct;
   return Math.min(maxPct, Math.max(minPct, nextPct)) / 100;
+}
+
+/**
+ * The scale at a normalized track ratio (`0` = `SUBTITLE_SCALE_MIN`, `1` =
+ * `SUBTITLE_SCALE_MAX`), snapped to the 5% ladder and clamped to the bounds.
+ */
+export function scaleFromRatio(ratio: number): number {
+  if (Number.isNaN(ratio)) {
+    return SUBTITLE_SCALE_DEFAULT;
+  }
+  const clamped = Math.min(1, Math.max(0, ratio));
+  const { minPct, maxPct, stepPct } = scaleBoundsPct();
+  const rawPct = minPct + clamped * (maxPct - minPct);
+  const snappedPct = Math.round((rawPct - minPct) / stepPct) * stepPct + minPct;
+  return Math.min(maxPct, Math.max(minPct, snappedPct)) / 100;
 }
 
 /**
