@@ -845,9 +845,20 @@ impl HostView {
         let replacing = job.key.clone();
         let read = match &job.work {
             Work::Addon { addon, asked } => self.read_title(addon, asked, job.answered.as_ref()),
-            Work::Discovered { id, kind } => {
-                self.read_discovered(*id, *kind, job.answered.as_ref())
-            }
+            Work::Discovered { id, kind } => match job.answered.as_ref() {
+                // A copy supplied by an Addon since switched off is only
+                // described again by TMDB: it stays that Addon's Title, so its
+                // card and a re-enabled Addon still find it (ADR-0044 §2).
+                Some(answered)
+                    if answered
+                        .addon
+                        .as_ref()
+                        .is_some_and(|addon| self.is_addon_disabled(addon)) =>
+                {
+                    self.read_discovered_onto(answered, *id, *kind)
+                }
+                answered => self.read_discovered(*id, *kind, answered),
+            },
             Work::CatchUp { id, season, source } => {
                 // A caught-up check is only ever queued for a copy it re-reads;
                 // a job that collapsed into one without it is not a check.

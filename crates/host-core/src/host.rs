@@ -620,6 +620,13 @@ impl Host {
                     },
                     None => self.whole_read_work(probe, Some(&held))?,
                 };
+                // A fallback past a switched-off Addon reads a Title of its own:
+                // keyed by that read, so the kept copy is not replaced and is
+                // still there when the Addon is back.
+                if matches!(&held.title.key, TitleKey::Addon { addon, .. } if self.state.is_addon_disabled(addon))
+                {
+                    return Some((key_of(&work)?, work, None));
+                }
                 Some((held.title.key.clone(), work, Some(held.title)))
             }
         }
@@ -631,7 +638,8 @@ impl Host {
         // The Addon that supplied the Title is the one to ask, where it is still
         // configured and enabled: it answers the same Title the client would
         // open. A configured Addon switched off by the owner is not contacted
-        // in the background either (ADR-0044 §2).
+        // in the background either (ADR-0044 §2), which leaves TMDB where the
+        // kept copy is keyed by its record and nothing where it is not.
         if let Some(addon) = &probe.addon {
             if self.state.is_addon_enabled(addon) {
                 return Some(Work::Addon {
@@ -642,7 +650,9 @@ impl Host {
                     },
                 });
             }
-            if self.state.has_addon(addon) {
+            let keyed_by_tmdb =
+                cached.is_some_and(|held| matches!(held.title.key, TitleKey::Tmdb { .. }));
+            if self.state.is_addon_disabled(addon) && !keyed_by_tmdb {
                 return None;
             }
         }
@@ -655,11 +665,14 @@ impl Host {
                         kind,
                     })
                 }
-                TitleKey::Addon { addon, id } => {
+                // A copy read through an Addon since switched off cannot be
+                // read through it again: the fallbacks below are asked instead.
+                TitleKey::Addon { addon, id } if !self.state.is_addon_disabled(&addon) => {
                     return TitleRef::parse(&cached.title.r#type, &id)
                         .ok()
                         .map(|asked| Work::Addon { addon, asked })
                 }
+                TitleKey::Addon { .. } => {}
             }
         }
 
@@ -2896,11 +2909,7 @@ impl Host {
     /// Refuse with [`ActionError::AddonDisabled`] when `id` is configured and
     /// switched off. A missing Addon is left to the caller's own refusal.
     fn require_not_disabled(&self, id: &AddonId) -> Result<(), ActionError> {
-        if self
-            .state
-            .addon(id)
-            .is_some_and(|addon| !addon.is_enabled())
-        {
+        if self.state.is_addon_disabled(id) {
             return Err(ActionError::AddonDisabled {
                 id: id.as_str().to_owned(),
             });

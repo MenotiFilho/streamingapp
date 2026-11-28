@@ -225,6 +225,11 @@ impl State {
         self.addon(id).is_some_and(Addon::is_enabled)
     }
 
+    /// Whether a configured Addon with this id is switched off.
+    pub(crate) fn is_addon_disabled(&self, id: &AddonId) -> bool {
+        self.addon(id).is_some_and(|addon| !addon.is_enabled())
+    }
+
     /// Why an Addon cannot be played from, or `None` when it is configured and
     /// enabled (ADR-0015, ADR-0044 §2).
     pub(crate) fn addon_unplayable(&self, id: &AddonId) -> Option<UnplayableReason> {

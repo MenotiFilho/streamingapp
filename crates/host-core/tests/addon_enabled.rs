@@ -5,11 +5,12 @@
 use std::sync::Arc;
 
 use host_core::{
-    Action, ActionError, Addon, AddonId, AutoplayPhase, ClientFrame, FixtureClock, FixtureFetcher,
-    FixturePlayer, FixtureProvider, Host, InMemorySecretStore, InMemoryStore, Manifest,
-    ManifestUrl, Observation, Playback, PlaybackState, SecretBackend, Snapshot, Store, Stream,
-    StreamUrl, Subtitle, Telling, TitleCard, TitleStub, Track, TrackId, TrackKind,
-    UnplayableReason, VideoRef, WatchProgress, ACTION_VERSION, AUTOPLAY_COUNTDOWN_MS, WIRE_VERSION,
+    Action, ActionError, Addon, AddonId, AutoplayPhase, CachedTitle, ClientFrame, FixtureClock,
+    FixtureFetcher, FixturePlayer, FixtureProvider, FixtureStremio, Host, InMemorySecretStore,
+    InMemoryStore, Manifest, ManifestUrl, Observation, Playback, PlaybackState, SecretBackend,
+    SeriesStatus, Snapshot, Store, Stream, StreamUrl, Subtitle, Telling, Title, TitleCard,
+    TitleKey, TitleSource, TitleStub, Track, TrackId, TrackKind, UnplayableReason, Video, VideoRef,
+    WatchProgress, ACTION_VERSION, AUTOPLAY_COUNTDOWN_MS, WIRE_VERSION,
 };
 
 const ADDON_A_URL: &str = "https://addon-a.example.org/token/eyJzZWNyZXQiOiJLRVkifQ/manifest.json";
@@ -916,23 +917,27 @@ fn autoplay_over_a_disabled_stream_addon_opens_nothing_and_says_why() {
     assert_eq!(fixture.player.opened().len(), opened_before);
 }
 
-/// A Host over a store whose one Addon is already switched off.
-fn host_with_a_disabled_addon(
-    store: InMemoryStore,
-    fetcher: Arc<FixtureFetcher>,
-    clock: Arc<FixtureClock>,
-) -> Host {
-    let addon = Addon::new(
-        ManifestUrl::parse(ADDON_A_URL).expect("a manifest URL"),
+/// An Addon as a store holds one, offering `meta` and Streams.
+fn stored_addon(url: &str, id: &str) -> Addon {
+    Addon::new(
+        ManifestUrl::parse(url).expect("a manifest URL"),
         Manifest::parse(&manifest(
-            ADDON_A_ID,
+            id,
             "1.0.0",
             "top",
             r#""catalog","meta","stream""#,
         ))
         .expect("a manifest"),
     )
-    .with_enabled(false);
+}
+
+/// A Host over a store whose one Addon is already switched off.
+fn host_with_a_disabled_addon(
+    store: InMemoryStore,
+    fetcher: Arc<FixtureFetcher>,
+    clock: Arc<FixtureClock>,
+) -> Host {
+    let addon = stored_addon(ADDON_A_URL, ADDON_A_ID).with_enabled(false);
 
     Host::new(
         Arc::new(store.holding_addons(vec![addon])) as Arc<dyn Store>,
@@ -1073,6 +1078,275 @@ fn a_tmdb_keyed_video_is_not_resolved_for_a_disabled_addon() {
 
     assert_eq!(fetcher.asked().len(), fetched_before);
     assert_eq!(provider.asked(), vec![TMDB_ONLY_ID.to_owned()]);
+}
+
+const DAY: i64 = 24 * 60 * 60 * 1000;
+const TMDB_KEY: &str = "0123456789abcdef0123456789abcdef";
+const TMDB_SERIES_URL: &str = concat!(
+    "https://api.themoviedb.org/3/tv/300001?append_to_response=season/1",
+    "&api_key=0123456789abcdef0123456789abcdef",
+);
+const TMDB_SERIES_BODY: &str = r#"{
+  "id": 300001,
+  "name": "Renamed by TMDB",
+  "status": "Returning Series",
+  "seasons": [{ "season_number": 1 }],
+  "season/1": {
+    "season_number": 1,
+    "episodes": [
+      { "episode_number": 1, "name": "One" },
+      { "episode_number": 2, "name": "Two" }
+    ]
+  }
+}"#;
+
+/// A series as the cache holds it after Addon A supplied it, under `key`.
+fn series_cached_from_addon_a(key: TitleKey, source: TitleSource) -> CachedTitle {
+    CachedTitle {
+        title: Title {
+            addon: Some(AddonId::parse(ADDON_A_ID).expect("an Addon id")),
+            id: "tt0903747".to_owned(),
+            key,
+            r#type: "series".to_owned(),
+            name: "Breaking Bad".to_owned(),
+            poster: None,
+            background: None,
+            logo: None,
+            description: None,
+            release_info: None,
+            runtime: None,
+            imdb_rating: None,
+            genres: Vec::new(),
+            videos: vec![Video {
+                id: "tmdb:300001:1:1".to_owned(),
+                name: Some("One".to_owned()),
+                season: Some(1),
+                episode: Some(1),
+                thumbnail: None,
+                air_date: None,
+                description: None,
+            }],
+        },
+        read_at: 0,
+        source,
+        status: Some(SeriesStatus::Running),
+        next_episode: None,
+    }
+}
+
+fn unmapped_series_cached_from_addon_a() -> CachedTitle {
+    series_cached_from_addon_a(
+        TitleKey::Addon {
+            addon: AddonId::parse(ADDON_A_ID).expect("an Addon id"),
+            id: "tt0903747".to_owned(),
+        },
+        TitleSource::Addon,
+    )
+}
+
+/// An episode of the series Addon A supplied, in Watch progress.
+fn progress_from_addon_a(video: &str, watched: bool) -> WatchProgress {
+    WatchProgress {
+        video: VideoRef::parse("series", video).expect("a Video"),
+        title: TitleStub::parse(&TitleCard {
+            addon: Some(AddonId::parse(ADDON_A_ID).expect("an Addon id")),
+            id: "tt0903747".to_owned(),
+            r#type: "series".to_owned(),
+            name: "Breaking Bad".to_owned(),
+            poster: None,
+            background: None,
+            logo: None,
+        })
+        .expect("a card the Host keeps"),
+        position: Some(100.0),
+        duration: Some(2800.0),
+        watched,
+        stream_addon: None,
+        binge_group: None,
+        updated_at: 1_000,
+    }
+}
+
+/// A signed-in Host over `store`, whose account's Library holds the series.
+fn host_with_the_series_in_the_library(
+    store: Arc<InMemoryStore>,
+    fetcher: Arc<FixtureFetcher>,
+    clock: Arc<FixtureClock>,
+) -> Host {
+    let stremio = Arc::new(
+        FixtureStremio::new()
+            .with_account("me@example.org", "hunter2", "AUTHKEY")
+            .holding(vec![serde_json::json!({
+                "_id": "tt0903747",
+                "name": "Breaking Bad",
+                "type": "series",
+                "removed": false,
+                "temp": false,
+                "_mtime": "2020-01-01T00:00:00.000Z",
+                "state": { "timeOffset": 0 },
+            })]),
+    );
+    let mut host = Host::new(
+        store as Arc<dyn Store>,
+        fetcher,
+        Arc::new(InMemorySecretStore::backed_by(SecretBackend::Keyring)),
+        Arc::new(FixtureProvider::new()),
+        Arc::new(FixturePlayer::new()),
+        clock,
+    )
+    .expect("a Host over a store starts")
+    .with_stremio(stremio);
+    host.dispatch(action(&serde_json::json!({
+        "type": "sign_in_stremio",
+        "email": "me@example.org",
+        "password": "hunter2",
+    })))
+    .expect("signing in");
+    host
+}
+
+fn addon_a_off_and_addon_b_on() -> InMemoryStore {
+    InMemoryStore::new().holding_addons(vec![
+        stored_addon(ADDON_A_URL, ADDON_A_ID).with_enabled(false),
+        stored_addon(ADDON_B_URL, ADDON_B_ID),
+    ])
+}
+
+#[test]
+fn a_disabled_addon_does_not_stop_tmdb_reading_ahead_a_title_it_supplied() {
+    let store = Arc::new(
+        InMemoryStore::new()
+            .holding_addons(vec![
+                stored_addon(ADDON_A_URL, ADDON_A_ID).with_enabled(false)
+            ])
+            .holding_titles(vec![series_cached_from_addon_a(
+                TitleKey::Tmdb { id: 300001 },
+                TitleSource::Both,
+            )])
+            .holding_watch(vec![progress_from_addon_a("tmdb:300001:1:1", false)]),
+    );
+    let fetcher = Arc::new(FixtureFetcher::new().serving(TMDB_SERIES_URL, TMDB_SERIES_BODY));
+    let mut host = Host::new(
+        store as Arc<dyn Store>,
+        fetcher.clone(),
+        Arc::new(InMemorySecretStore::backed_by(SecretBackend::Keyring)),
+        Arc::new(FixtureProvider::new()),
+        Arc::new(FixturePlayer::new()),
+        Arc::new(FixtureClock::new().at(2 * DAY)),
+    )
+    .expect("a Host over a store starts");
+    host.dispatch(action(&serde_json::json!({
+        "type": "set_tmdb_key",
+        "key": TMDB_KEY,
+    })))
+    .expect("a key is entered");
+
+    host.drain();
+    assert_eq!(fetcher.asked(), vec![TMDB_SERIES_URL.to_owned()]);
+
+    // TMDB only described the Title: it is still the one Addon A supplied, so
+    // switching A back on finds the refreshed copy under A's own id.
+    set_enabled(&mut host, ADDON_A_ID, true).expect("re-enable A");
+    let response = host
+        .dispatch(action(&serde_json::json!({
+            "type": "open_title",
+            "addon": ADDON_A_ID,
+            "title": { "type": "series", "id": "tt0903747" },
+        })))
+        .expect("the refreshed copy opens");
+    let title = response.title().expect("a Title Answer");
+    assert_eq!(title.name, "Renamed by TMDB");
+    assert_eq!(title.videos.len(), 2);
+    assert_eq!(fetcher.asked(), vec![TMDB_SERIES_URL.to_owned()]);
+}
+
+#[test]
+fn a_library_title_kept_from_a_disabled_addon_is_read_ahead_from_an_enabled_one() {
+    let store = Arc::new(
+        addon_a_off_and_addon_b_on().holding_titles(vec![unmapped_series_cached_from_addon_a()]),
+    );
+    let fetcher = Arc::new(FixtureFetcher::new().serving(ADDON_B_SERIES_META_URL, SERIES_META));
+    let mut host = host_with_the_series_in_the_library(
+        store.clone(),
+        fetcher.clone(),
+        Arc::new(FixtureClock::new().at(8 * DAY)),
+    );
+
+    host.drain();
+
+    assert_eq!(fetcher.asked(), vec![ADDON_B_SERIES_META_URL.to_owned()]);
+    assert!(
+        store
+            .persisted_titles()
+            .contains(&unmapped_series_cached_from_addon_a()),
+        "the disabled Addon's copy stays for when it is back"
+    );
+}
+
+#[test]
+fn a_library_title_is_read_ahead_from_the_first_enabled_addon() {
+    let fetcher = Arc::new(FixtureFetcher::new().serving(ADDON_B_SERIES_META_URL, SERIES_META));
+    let mut host = host_with_the_series_in_the_library(
+        Arc::new(addon_a_off_and_addon_b_on()),
+        fetcher.clone(),
+        Arc::new(FixtureClock::new()),
+    );
+
+    host.drain();
+
+    assert_eq!(fetcher.asked(), vec![ADDON_B_SERIES_META_URL.to_owned()]);
+}
+
+#[test]
+fn account_sync_does_not_ask_a_disabled_addon_for_a_series_episode_order() {
+    // A watched episode is what makes the merge want the Videos' order.
+    let store = Arc::new(
+        InMemoryStore::new()
+            .holding_addons(vec![
+                stored_addon(ADDON_A_URL, ADDON_A_ID).with_enabled(false)
+            ])
+            .holding_watch(vec![progress_from_addon_a("tt0903747:1:1", true)]),
+    );
+    let fetcher = Arc::new(FixtureFetcher::new().serving(ADDON_A_SERIES_META_URL, SERIES_META));
+
+    let mut host =
+        host_with_the_series_in_the_library(store, fetcher.clone(), Arc::new(FixtureClock::new()));
+    host.drain();
+
+    assert_eq!(fetcher.asked(), Vec::<String>::new());
+}
+
+#[test]
+fn a_stream_of_a_disabled_addon_still_opens_and_asks_it_nothing() {
+    let mut fixture = two_addon_fixture();
+    set_enabled(&mut fixture.host, ADDON_A_ID, false).expect("disable A");
+    let fetched_before = fixture.fetcher.asked().len();
+    let asked_before = fixture.provider.asked().len();
+
+    play_episode(
+        &mut fixture,
+        Some(ADDON_B_ID),
+        ADDON_A_ID,
+        "tt0903747:1:1",
+        STREAM_A_EP1,
+        None,
+    );
+    fixture
+        .host
+        .dispatch(action(&serde_json::json!({
+            "type": "switch_stream",
+            "addon": ADDON_A_ID,
+            "stream": {
+                "name": "720p",
+                "playback": { "kind": "direct", "url": STREAM_A_EP2 },
+                "warnings": [],
+            },
+        })))
+        .expect("the Stream itself was handed to the Host");
+
+    assert_eq!(fixture.player.opened().len(), 2);
+    assert_eq!(fixture.fetcher.asked().len(), fetched_before);
+    assert_eq!(fixture.provider.asked().len(), asked_before);
 }
 
 #[test]
