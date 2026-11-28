@@ -1,3 +1,5 @@
+import type { ReactNode } from "react";
+
 import { PhoneBadge } from "./controls";
 
 export type PhoneStreamRowProps = {
@@ -15,6 +17,8 @@ export type PhoneStreamRowProps = {
   playing?: boolean;
   /** A Stream this Host cannot open stays in the list and cannot be pressed. */
   disabled?: boolean;
+  /** Extra marks placed inside the row's marks strip (warnings, Unplayable). */
+  children?: ReactNode;
   /** A tap plays it on the Host. */
   onPlay: () => void;
 };
@@ -28,6 +32,7 @@ export function PhoneStreamRow({
   marks = [],
   playing = false,
   disabled = false,
+  children,
   onPlay,
 }: PhoneStreamRowProps) {
   // Every Addon mark stays, verbatim (§9); PLAYING sits after the first one and
@@ -53,6 +58,7 @@ export function PhoneStreamRow({
         {badges.slice(0, 1)}
         {playing ? <PhoneBadge tone="accent">PLAYING</PhoneBadge> : null}
         {badges.slice(1)}
+        {children}
       </span>
     </button>
   );

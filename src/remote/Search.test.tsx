@@ -1,138 +1,100 @@
 import { act, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
-import { useState } from "react";
-import { describe, expect, test } from "vitest";
+import { useEffect, useState } from "react";
+import { describe, expect, test, vi } from "vitest";
 
-import { explain } from "../core/errors";
-import { rowTagOf } from "../core/homeProgramme";
+import { explain, type ActionError } from "../core/errors";
 import type { HostLink } from "../core/link";
 import type { NewLevel } from "../core/navigation";
 import { useSession } from "../core/react/useSession";
+import { searchNoCatalogsNote, searchPromptCopy } from "../core/marqueeSearch";
 import { searchFeedKey } from "../core/search";
+import type { Session } from "../core/session";
 import type {
+  Action,
   AddonCatalog,
   AddonManifest,
   CatalogRow,
   MetaPreview,
   Response,
-  SearchRow,
   Snapshot,
 } from "../core/wire";
 import { FakeHost, type HostAnswer, type Respond } from "./fakeHost.testing";
 import { NOTHING } from "./fakeSocket.testing";
-import { Search } from "./Search";
-import { RemoteApp } from "./RemoteApp";
-import { gridLevel } from "./grid";
 import { titleLevel, type RemotePayload } from "./levels";
-import { NO_SEARCHABLE_CATALOGS } from "./searchScreen";
+import { Search } from "./Search";
 
-/**
- * Search over a fake HostLink (#207, ADR-0032, docs/agents/testing.md).
- *
- * The screen is the harness; every assertion is a decision at the boundary:
- * what a mount and a submit send, which kind either row's More opens, the answer
- * a person left, the row that keeps its own failure, and the level a press
- * pushes. Nothing here reads a class or a nesting, and the one line of copy a
- * case reads is the empty state's, taken from the seam that chooses it
- * (docs/agents/testing.md §4).
- */
-
-const SKIP = { name: "skip", isRequired: false, options: [], optionsLimit: 0 };
-
-const FILMS: AddonCatalog = { type: "movie", id: "top", name: "Popular", extra: [SKIP] };
-const SHOWS: AddonCatalog = { type: "series", id: "shows", name: "Shows", extra: [] };
+const SEARCHABLE: AddonCatalog = {
+  type: "movie",
+  id: "top",
+  name: "Popular",
+  extra: [{ name: "search", isRequired: true, options: [], optionsLimit: 0 }],
+};
 
 const CINEMETA: AddonManifest = {
   id: "cinemeta",
   name: "Cinemeta",
   version: "3.0.14",
   resources: [
-    { name: "catalog", types: ["movie", "series"], idPrefixes: null },
-    { name: "stream", types: ["movie", "series"], idPrefixes: ["tt"] },
+    { name: "catalog", types: ["movie", "series"], idPrefixes: ["tt"] },
+    { name: "meta", types: ["movie", "series"], idPrefixes: ["tt"] },
   ],
   types: ["movie", "series"],
-  catalogs: [FILMS, SHOWS],
+  catalogs: [SEARCHABLE],
   idPrefixes: ["tt"],
   behaviorHints: { configurable: false, configurationRequired: false },
   enabled: true,
 };
 
-const KEYED: Snapshot = {
+const WITH_KEY: Snapshot = {
   ...NOTHING,
   addons: [CINEMETA],
   protection: { backend: "file", tmdbHeld: true, stremioHeld: false },
 };
 
-const UNKEYED: Snapshot = {
-  ...KEYED,
-  protection: { backend: "file", tmdbHeld: false, stremioHeld: false },
+const WITHOUT_KEY: Snapshot = {
+  ...WITH_KEY,
+  protection: { ...WITH_KEY.protection, tmdbHeld: false },
 };
 
-function meta(id: string, type: string, name: string): MetaPreview {
+function hit(id: string, name: string, type: string = "movie"): MetaPreview {
   return {
     id,
     type,
     name,
     poster: `https://images.test/${id}.jpg`,
     posterShape: "poster",
-    background: null,
-    releaseInfo: "2026",
-    imdbRating: null,
-    genres: [],
-    description: null,
+    releaseInfo: "1999",
+    imdbRating: "8.7",
+    genres: ["Sci-Fi"],
+    description: `${name} hit`,
   };
 }
 
-function searchAnswer(answer: SearchRow): Response {
-  return { snapshots: [], answer: { search: answer } };
-}
-
-function catalogRow(
-  addon: string,
-  type: string,
-  id: string,
-  metas: MetaPreview[],
-): CatalogRow {
-  return { addon, type, id, name: id, sent: metas.length, metas, failure: null };
-}
-
-/** TMDB's answer: Movies pages on, Series answers one and ends. */
-function tmdb(action: Parameters<Respond>[0]): HostAnswer {
-  if (action.type !== "search") {
-    return { snapshots: [], answer: null };
-  }
-  if (action.kind === "movie") {
-    const answer =
-      action.page === 1
-        ? {
-            type: "movie",
-            sent: 2,
-            metas: [meta("tmdb:1", "movie", "One"), meta("tmdb:2", "movie", "Two")],
-            failure: null,
-          }
-        : {
-            type: "movie",
-            sent: 1,
-            metas: [meta("tmdb:3", "movie", "Three")],
-            failure: null,
-          };
-    return searchAnswer(answer);
-  }
-  return searchAnswer({
-    type: "series",
-    sent: 1,
-    metas: [meta("tmdb:s1", "series", "A Show")],
+function catalogRow(metas: MetaPreview[]): CatalogRow {
+  return {
+    addon: "cinemeta",
+    type: "movie",
+    id: "top",
+    name: "Popular",
+    sent: metas.length,
+    metas,
     failure: null,
-  });
+  };
 }
 
 function Show({
   link,
   pushes,
+  onSession,
 }: {
   link: HostLink;
   pushes: NewLevel<RemotePayload>[];
+  onSession?: (session: Session) => void;
 }) {
   const { session, state } = useSession(link);
+  useEffect(() => {
+    onSession?.(session);
+  }, [onSession, session]);
   return (
     <Search
       session={session}
@@ -145,10 +107,6 @@ function Show({
   );
 }
 
-/**
- * A Search screen that leaves the tree when a card pushes a Title, as the
- * Remote unmounts the destination under a level (#262, #264).
- */
 function Room({
   link,
   pushes,
@@ -178,447 +136,449 @@ function Room({
   );
 }
 
+function doorOf(host: FakeHost): HostLink {
+  const state = host.state();
+  return {
+    snapshot: () => host.snapshot(),
+    dispatch: (action) => host.dispatch(action),
+    onSnapshot: (handler) => host.onSnapshot(handler),
+    onRevision: (handler) => host.onRevision(handler),
+    state: () => state,
+    onState: (handler) => host.onState(handler),
+    close: () => host.close(),
+  };
+}
+
 function mount({
-  snapshot = KEYED,
-  respond = tmdb,
+  snapshot = WITHOUT_KEY,
+  respond = () => ({ snapshots: [], answer: { catalogs: [] } }),
+  onSession,
 }: {
   snapshot?: Snapshot;
   respond?: Respond;
+  onSession?: (session: Session) => void;
 } = {}) {
   const host = new FakeHost(snapshot, respond);
   const pushes: NewLevel<RemotePayload>[] = [];
-  const view = render(<Show link={host} pushes={pushes} />);
+  const view = render(<Show link={doorOf(host)} pushes={pushes} onSession={onSession} />);
   return { host, pushes, view };
 }
 
-/** Type a query and press the bar's one control, once the Host's fact has landed. */
-async function search(query: string) {
-  const input = await screen.findByLabelText("Search for a Title");
-  fireEvent.change(input, { target: { value: query } });
-  fireEvent.click(screen.getByRole("button", { name: "Search" }));
+async function submitQuery(value: string) {
+  const form = await screen.findByRole("search");
+  const input = within(form).getByRole("searchbox");
+  fireEvent.change(input, { target: { value } });
+  fireEvent.submit(form);
 }
 
-describe("Search over TMDB", () => {
-  test("a mount asks nothing, and a submit asks both kinds for page 1 in the core's order", async () => {
-    const { host } = mount();
-    await screen.findByLabelText("Search for a Title");
-    expect(host.actions, "an unasked screen sends no question").toEqual([]);
+async function flush() {
+  await act(async () => {
+    await Promise.resolve();
+  });
+}
 
-    await search("dune");
+describe("Search on Remote", () => {
+  test("before submit draws the prompt and an empty submit sends nothing", async () => {
+    const { host } = mount({ snapshot: WITH_KEY });
+    const prompt = await screen.findByTestId("search-prompt");
+    expect(prompt).toHaveTextContent(searchPromptCopy(true).title);
 
-    await waitFor(() => expect(host.asked("search")).toHaveLength(2));
-    expect(host.asked("search")).toEqual([
-      { type: "search", query: "dune", kind: "movie", page: 1 },
-      { type: "search", query: "dune", kind: "series", page: 1 },
+    await submitQuery("   ");
+    await flush();
+    expect(host.actions).toEqual([]);
+  });
+
+  test("without TMDB key, submits search_catalogs and opens Addon card Title", async () => {
+    const { host, pushes } = mount({
+      snapshot: WITHOUT_KEY,
+      respond: (action: Action): Response =>
+        action.type === "search_catalogs"
+          ? { snapshots: [], answer: { catalogs: [catalogRow([hit("tt1", "Matrix")])] } }
+          : { snapshots: [], answer: null },
+    });
+
+    await submitQuery("Matrix");
+    const card = await screen.findByTestId("search-card-cinemeta-tt1");
+    expect(host.asked("search_catalogs")).toEqual([
+      { type: "search_catalogs", query: "Matrix" },
+    ]);
+    expect(host.asked("search")).toEqual([]);
+
+    fireEvent.click(card);
+    expect(pushes).toEqual([
+      titleLevel({ addon: "cinemeta", id: "tt1", type: "movie", name: "Matrix" }),
     ]);
   });
 
-  test("an empty or blank field sends nothing", async () => {
-    const { host } = mount();
-    const form = await screen.findByRole("search");
-
-    fireEvent.submit(form);
-    fireEvent.change(screen.getByLabelText("Search for a Title"), {
-      target: { value: "   " },
+  test("with TMDB key, queries search_catalogs plus TMDB Movies and Series rows with Read on", async () => {
+    const { host, pushes } = mount({
+      snapshot: WITH_KEY,
+      respond: (action: Action): Response => {
+        if (action.type === "search_catalogs") {
+          return { snapshots: [], answer: { catalogs: [catalogRow([hit("tt1", "Matrix")])] } };
+        }
+        if (action.type === "search") {
+          const isSeries = action.kind === "series";
+          if (action.page === 2 && !isSeries) {
+            return {
+              snapshots: [],
+              answer: {
+                search: {
+                  type: "movie",
+                  sent: 1,
+                  metas: [hit("tmdb:2", "Matrix Reloaded", "movie")],
+                  failure: null,
+                },
+              },
+            };
+          }
+          return {
+            snapshots: [],
+            answer: {
+              search: {
+                type: action.kind,
+                sent: 1,
+                metas: [
+                  isSeries
+                    ? hit("tmdb:s1", "Matrix Series", "series")
+                    : hit("tmdb:1", "The Matrix", "movie"),
+                ],
+                failure: null,
+              },
+            },
+          };
+        }
+        return { snapshots: [], answer: null };
+      },
     });
-    fireEvent.submit(form);
 
-    expect(host.actions).toEqual([]);
-    expect(screen.queryByRole("alert")).not.toBeInTheDocument();
+    await submitQuery("Matrix");
+
+    expect(await screen.findByTestId("search-card-cinemeta-tt1")).toBeInTheDocument();
+    const movieCard = await screen.findByTestId("search-card-movie-tmdb:1");
+    expect(await screen.findByTestId("search-card-series-tmdb:s1")).toBeInTheDocument();
+
+    fireEvent.click(movieCard);
+    expect(pushes).toEqual([
+      titleLevel({ addon: null, id: "tmdb:1", type: "movie", name: "The Matrix" }),
+    ]);
+
+    const moviesRow = screen.getByTestId("remote-search-row-movie");
+    fireEvent.click(within(moviesRow).getByRole("button", { name: "Read on" }));
+    expect(await screen.findByTestId("search-card-movie-tmdb:2")).toBeInTheDocument();
+    expect(host.asked("search")).toHaveLength(3);
   });
 
-  test("one query draws both rows, each with its own More, and there is no kind chip", async () => {
-    const { host, pushes } = mount();
-    await search("dune");
-    await screen.findByTestId("search-card-movie-tmdb:1");
+  test("draws PhoneAddonNotice on catalog failure and retries cleanly on Try again", async () => {
+    const failure: ActionError = { kind: "catalog", detail: "search unavailable" };
+    let attempt = 0;
+    const { host } = mount({
+      snapshot: WITHOUT_KEY,
+      respond: (action: Action): HostAnswer => {
+        if (action.type !== "search_catalogs") {
+          return { snapshots: [], answer: null };
+        }
+        attempt += 1;
+        return attempt === 1
+          ? failure
+          : { snapshots: [], answer: { catalogs: [catalogRow([hit("tt1", "Matrix")])] } };
+      },
+    });
 
-    expect(
-      await screen.findByTestId("search-card-series-tmdb:s1"),
-      "Movies and Series stand side by side",
-    ).toBeInTheDocument();
-    expect(
-      screen.queryByRole("group", { name: "Kind" }),
-      "the kinds are two rows now, not a choice",
-    ).not.toBeInTheDocument();
+    await submitQuery("Matrix");
+    const notice = await screen.findByTestId("search-catalogs-failure");
+    expect(notice).toHaveTextContent(explain(failure));
 
-    const asked = host.asked("search").length;
-    fireEvent.click(screen.getByRole("button", { name: "More Movies" }));
+    fireEvent.click(within(notice).getByRole("button", { name: "Try again" }));
+    expect(await screen.findByTestId("search-card-cinemeta-tt1")).toBeInTheDocument();
+    expect(host.asked("search_catalogs")).toHaveLength(2);
+  });
 
-    expect(pushes[0]).toEqual(
-      gridLevel({
-        title: "Movies",
-        index: "01",
-        tag: rowTagOf("TMDB", "movie", 2),
-        addon: null,
-        source: {
-          kind: "search",
-          feedKind: "movie",
-          query: "dune",
-          feedKey: searchFeedKey("dune", "movie"),
-        },
-      }),
-    );
-    expect(
-      host.asked("search"),
-      "the grid being pushed asks nothing; rendering it is what reads on",
-    ).toHaveLength(asked);
+  test("cancels a stale query answer when a newer query was submitted", async () => {
+    const held: Array<() => void> = [];
+    const { host } = mount({
+      snapshot: WITH_KEY,
+      respond: (action: Action) =>
+        new Promise<HostAnswer>((resolve) => {
+          held.push(() => {
+            if (action.type === "search_catalogs") {
+              resolve({ snapshots: [], answer: { catalogs: [] } });
+              return;
+            }
+            if (action.type === "search") {
+              resolve({
+                snapshots: [],
+                answer: {
+                  search: {
+                    type: action.kind,
+                    sent: 1,
+                    metas: [hit(`${action.query}-${action.kind}`, action.query, action.kind)],
+                    failure: null,
+                  },
+                },
+              });
+              return;
+            }
+            resolve({ snapshots: [], answer: null });
+          });
+        }),
+    });
 
-    fireEvent.click(screen.getByRole("button", { name: "More Series" }));
-    expect(pushes[1]).toEqual(
-      gridLevel({
-        title: "Series",
-        index: "02",
-        tag: rowTagOf("TMDB", "series", 1),
-        addon: null,
-        source: {
-          kind: "search",
-          feedKind: "series",
-          query: "dune",
-          feedKey: searchFeedKey("dune", "series"),
-        },
-      }),
+    await submitQuery("dune");
+    await waitFor(() => expect(held).toHaveLength(3));
+
+    await submitQuery("matrix");
+    await waitFor(() => expect(held).toHaveLength(6));
+
+    // Resolve newer query ("matrix") first, then stale query ("dune").
+    act(() => {
+      held[3]?.();
+      held[4]?.();
+      held[5]?.();
+    });
+    expect(await screen.findByTestId("search-card-movie-matrix-movie")).toBeInTheDocument();
+
+    act(() => {
+      held[0]?.();
+      held[1]?.();
+      held[2]?.();
+    });
+    await flush();
+
+    expect(host.asked("search").map((a) => a.query)).toEqual([
+      "dune",
+      "dune",
+      "matrix",
+      "matrix",
+    ]);
+    expect(screen.getByTestId("search-card-movie-matrix-movie")).toBeInTheDocument();
+    expect(screen.queryByTestId("search-card-movie-dune-movie")).not.toBeInTheDocument();
+  });
+
+  test("toggling TMDB credential clears the search without querying the new arm, and submitting runs it again", async () => {
+    const { host } = mount({
+      snapshot: WITH_KEY,
+      respond: (action: Action): Response => {
+        if (action.type === "search") {
+          return {
+            snapshots: [],
+            answer: {
+              search: {
+                type: action.kind,
+                sent: 1,
+                metas: [hit(`tmdb:${action.kind}`, "Matrix", action.kind)],
+                failure: null,
+              },
+            },
+          };
+        }
+        if (action.type === "search_catalogs") {
+          return {
+            snapshots: [],
+            answer: { catalogs: [catalogRow([hit("tt1", "Matrix")])] },
+          };
+        }
+        return { snapshots: [], answer: null };
+      },
+    });
+
+    await submitQuery("Matrix");
+    expect(await screen.findByTestId("search-card-movie-tmdb:movie")).toBeInTheDocument();
+    const catalogAsksBefore = host.asked("search_catalogs").length;
+
+    act(() => {
+      host.publish(WITHOUT_KEY);
+    });
+
+    expect(await screen.findByTestId("search-prompt")).toBeInTheDocument();
+    expect(screen.queryByTestId("search-card-movie-tmdb:movie")).not.toBeInTheDocument();
+    expect(screen.getByLabelText("Search for a Title")).toHaveValue("");
+    expect(host.asked("search_catalogs")).toHaveLength(catalogAsksBefore);
+
+    await submitQuery("Arrival");
+    expect(await screen.findByTestId("search-card-cinemeta-tt1")).toBeInTheDocument();
+    expect(host.asked("search_catalogs")).toHaveLength(catalogAsksBefore + 1);
+  });
+
+  test("draws the no-searchable-catalogs note when no catalog can be searched", async () => {
+    mount({
+      snapshot: WITHOUT_KEY,
+      respond: () => ({ snapshots: [], answer: { catalogs: [] } }),
+    });
+
+    await submitQuery("Matrix");
+    expect(await screen.findByTestId("search-no-answer")).toHaveTextContent(
+      searchNoCatalogsNote(false)!,
     );
   });
 
-  test("each rail's head action pages its own kind alone", async () => {
-    const { host } = mount();
-    await search("dune");
-    await screen.findByTestId("search-card-movie-tmdb:1");
-
-    const movies = screen.getByTestId("remote-search-row-movie");
-    fireEvent.click(within(movies).getByRole("button", { name: "Read on" }));
-
-    await waitFor(() =>
-      expect(host.asked("search").at(-1)).toEqual({
-        type: "search",
-        query: "dune",
-        kind: "movie",
-        page: 2,
-      }),
-    );
-    expect(await screen.findByTestId("search-card-movie-tmdb:3")).toBeInTheDocument();
-    expect(
-      host.asked("search").filter((action) => action.kind === "series"),
-      "the other row was not paged",
-    ).toHaveLength(1);
-  });
-
-  test("Back from a Title keeps the query and the pages, and asks no page 1 again", async () => {
-    const host = new FakeHost(KEYED, tmdb);
+  test("Back from a Title keeps the keyed query, the draft and the loaded pages, and does not ask page 1 again", async () => {
+    const host = new FakeHost(WITH_KEY, (action: Action): Response => {
+      if (action.type === "search_catalogs") {
+        return { snapshots: [], answer: { catalogs: [catalogRow([hit("tt1", "Matrix")])] } };
+      }
+      if (action.type === "search") {
+        if (action.kind === "movie" && action.page === 2) {
+          return {
+            snapshots: [],
+            answer: {
+              search: {
+                type: "movie",
+                sent: 1,
+                metas: [hit("tmdb:2", "Matrix Reloaded", "movie")],
+                failure: null,
+              },
+            },
+          };
+        }
+        return {
+          snapshots: [],
+          answer: {
+            search: {
+              type: action.kind,
+              sent: 1,
+              metas: [
+                action.kind === "series"
+                  ? hit("tmdb:s1", "Matrix Series", "series")
+                  : hit("tmdb:1", "The Matrix", "movie"),
+              ],
+              failure: null,
+            },
+          },
+        };
+      }
+      return { snapshots: [], answer: null };
+    });
     const pushes: NewLevel<RemotePayload>[] = [];
-    const view = render(<Room link={host} pushes={pushes} />);
+    const view = render(<Room link={doorOf(host)} pushes={pushes} />);
     try {
-      await search("dune");
+      await submitQuery("Matrix");
       await screen.findByTestId("search-card-movie-tmdb:1");
 
-      const movies = screen.getByTestId("remote-search-row-movie");
-      fireEvent.click(within(movies).getByRole("button", { name: "Read on" }));
-      await screen.findByTestId("search-card-movie-tmdb:3");
-      const firstPages = host
+      const moviesRow = screen.getByTestId("remote-search-row-movie");
+      fireEvent.click(within(moviesRow).getByRole("button", { name: "Read on" }));
+      await screen.findByTestId("search-card-movie-tmdb:2");
+
+      const moviePage1Asks = host
         .asked("search")
         .filter((action) => action.kind === "movie" && action.page === 1).length;
+      const seriesPage1Asks = host
+        .asked("search")
+        .filter((action) => action.kind === "series" && action.page === 1).length;
+      const catalogAsks = host.asked("search_catalogs").length;
 
-      fireEvent.click(screen.getByTestId("search-card-movie-tmdb:3"));
+      fireEvent.change(screen.getByLabelText("Search for a Title"), {
+        target: { value: "Matrix draft" },
+      });
+
+      fireEvent.click(screen.getByTestId("search-card-movie-tmdb:2"));
       expect(await screen.findByRole("button", { name: "Back from Title" })).toBeInTheDocument();
       fireEvent.click(screen.getByRole("button", { name: "Back from Title" }));
 
-      expect(
-        await screen.findByLabelText("Search for a Title"),
-      ).toHaveValue("dune");
-      expect(
-        await screen.findByTestId("search-card-movie-tmdb:3"),
-        "the page read before the Title is still there",
-      ).toBeInTheDocument();
-      expect(
-        screen.getByTestId("search-card-series-tmdb:s1"),
-        "the other kind's row is still there",
-      ).toBeInTheDocument();
+      expect(await screen.findByLabelText("Search for a Title")).toHaveValue("Matrix draft");
+      expect(await screen.findByTestId("search-card-movie-tmdb:2")).toBeInTheDocument();
+      expect(screen.getByTestId("search-card-movie-tmdb:1")).toBeInTheDocument();
+      expect(screen.getByTestId("search-card-series-tmdb:s1")).toBeInTheDocument();
+      expect(screen.getByTestId("search-card-cinemeta-tt1")).toBeInTheDocument();
       expect(
         host.asked("search").filter((action) => action.kind === "movie" && action.page === 1),
-        "the return does not ask page 1 again",
-      ).toHaveLength(firstPages);
+      ).toHaveLength(moviePage1Asks);
+      expect(
+        host.asked("search").filter((action) => action.kind === "series" && action.page === 1),
+      ).toHaveLength(seriesPage1Asks);
+      expect(host.asked("search_catalogs")).toHaveLength(catalogAsks);
     } finally {
       view.unmount();
     }
   });
 
-  test("a kind that failed draws its explanation and leaves the other kind's row alone", async () => {
-    const { host } = mount({
-      respond: (action) =>
-        action.type === "search" && action.kind === "movie"
-          ? { kind: "tmdb", detail: "TMDB answered with status 429" }
-          : tmdb(action),
-    });
-    await search("dune");
-
-    const failed = await screen.findByTestId("remote-search-row-movie");
-    expect(await within(failed).findByRole("alert")).toHaveTextContent(
-      explain({ kind: "tmdb", detail: "TMDB answered with status 429" }),
+  test("Back from a Title keeps the keyless query and the Catalog rows, and does not ask search_catalogs again", async () => {
+    const host = new FakeHost(WITHOUT_KEY, (action: Action): Response =>
+      action.type === "search_catalogs"
+        ? { snapshots: [], answer: { catalogs: [catalogRow([hit("tt1", "Matrix")])] } }
+        : { snapshots: [], answer: null },
     );
-    expect(await screen.findByTestId("search-card-series-tmdb:s1")).toBeInTheDocument();
-    expect(
-      within(screen.getByTestId("remote-search-row-series")).queryByRole("alert"),
-      "the failure stays under the row that lost its page",
-    ).not.toBeInTheDocument();
-    expect(host.asked("search").map((action) => action.kind)).toEqual([
-      "movie",
-      "series",
-    ]);
-  });
-
-  test("an answer to a query a person has left does not land in the new one", async () => {
-    const held: Array<() => void> = [];
-    const { host } = mount({
-      respond: (action) =>
-        new Promise<HostAnswer>((resolve) => {
-          held.push(() =>
-            resolve(
-              action.type === "search"
-                ? searchAnswer({
-                    type: action.kind,
-                    sent: 1,
-                    metas: [
-                      meta(
-                        `${action.query}-${action.kind}`,
-                        action.kind,
-                        action.query,
-                      ),
-                    ],
-                    failure: null,
-                  })
-                : { snapshots: [], answer: null },
-            ),
-          );
-        }),
-    });
-
-    await search("dune");
-    await waitFor(() => expect(held).toHaveLength(2));
-    await search("matrix");
-    await waitFor(() => expect(held).toHaveLength(4));
-
-    act(() => {
-      // The query a person left answers last: its cards belong to a row that
-      // is no longer on screen.
-      held[2]?.();
-      held[3]?.();
-    });
-    await screen.findByTestId("search-card-movie-matrix-movie");
-    act(() => {
-      held[0]?.();
-      held[1]?.();
-    });
-
-    await waitFor(() =>
-      expect(host.asked("search").map((action) => action.query)).toEqual([
-        "dune",
-        "dune",
-        "matrix",
-        "matrix",
-      ]),
-    );
-    expect(screen.getByTestId("search-card-movie-matrix-movie")).toBeInTheDocument();
-    expect(
-      screen.queryByTestId("search-card-movie-dune-movie"),
-      "the left query's answer is dropped, not folded into the new rows",
-    ).not.toBeInTheDocument();
-  });
-
-  test("a credential cleared drops the keyed rows without taking the other arm", async () => {
-    const { host } = mount();
-    await search("dune");
-    await screen.findByTestId("search-card-movie-tmdb:1");
-
-    act(() => {
-      host.publish({
-        ...KEYED,
-        revision: 2,
-        protection: { ...KEYED.protection, tmdbHeld: false },
-      });
-    });
-
-    await waitFor(() =>
-      expect(screen.queryByTestId("search-card-movie-tmdb:1")).not.toBeInTheDocument(),
-    );
-    expect(
-      host.asked("search_catalogs"),
-      "the new arm asks only when a person asks it a question",
-    ).toEqual([]);
-  });
-});
-
-describe("Search with no TMDB Credential", () => {
-  test("a keyless query keeps its rows and words across a Title", async () => {
-    const host = new FakeHost(UNKEYED, () => ({
-      snapshots: [],
-      answer: {
-        catalogs: [
-          catalogRow("cinemeta", "movie", "top", [meta("tt1", "movie", "One")]),
-        ],
-      },
-    }));
     const pushes: NewLevel<RemotePayload>[] = [];
-    const view = render(<Room link={host} pushes={pushes} />);
+    const view = render(<Room link={doorOf(host)} pushes={pushes} />);
     try {
-      await search("dune");
-      expect(await screen.findByTestId("search-card-cinemeta-tt1")).toBeInTheDocument();
+      await submitQuery("Matrix");
+      await screen.findByTestId("search-card-cinemeta-tt1");
 
       fireEvent.click(screen.getByTestId("search-card-cinemeta-tt1"));
       expect(await screen.findByRole("button", { name: "Back from Title" })).toBeInTheDocument();
       fireEvent.click(screen.getByRole("button", { name: "Back from Title" }));
 
-      expect(await screen.findByLabelText("Search for a Title")).toHaveValue("dune");
+      expect(await screen.findByLabelText("Search for a Title")).toHaveValue("Matrix");
       expect(await screen.findByTestId("search-card-cinemeta-tt1")).toBeInTheDocument();
-      expect(
-        host.asked("search_catalogs"),
-        "the return does not ask the same query again",
-      ).toHaveLength(1);
+      expect(host.asked("search_catalogs")).toHaveLength(1);
     } finally {
       view.unmount();
     }
   });
 
-  test("a submit asks the Catalogs once, and every answering row is drawn", async () => {
-    const { host, pushes } = mount({
-      snapshot: UNKEYED,
-      respond: () => ({
-        snapshots: [],
-        answer: {
-          catalogs: [
-            catalogRow("cinemeta", "movie", "top", [meta("tt1", "movie", "One")]),
-            catalogRow("shows", "series", "shows", [meta("tt2", "series", "Two")]),
-          ],
-        },
-      }),
-    });
-    await search("dune");
-
-    await waitFor(() =>
-      expect(host.asked("search_catalogs")).toEqual([
-        { type: "search_catalogs", query: "dune" },
-      ]),
-    );
-    expect(await screen.findByTestId("search-card-cinemeta-tt1")).toBeInTheDocument();
-    expect(
-      await screen.findByTestId("search-card-shows-tt2"),
-      "one row per answering Catalog, in the Host's order",
-    ).toBeInTheDocument();
-    expect(screen.queryByRole("group", { name: "Kind" })).not.toBeInTheDocument();
-
-    fireEvent.click(screen.getByTestId("search-card-shows-tt2"));
-    expect(pushes).toEqual([
-      titleLevel({ addon: "shows", id: "tt2", type: "series", name: "Two" }),
-    ]);
-  });
-
-  test("no searchable Catalog at all draws the one line that says so", async () => {
-    mount({
-      snapshot: UNKEYED,
-      respond: () => ({ snapshots: [], answer: { catalogs: [] } }),
-    });
-    await search("dune");
-
-    expect(await screen.findByText(NO_SEARCHABLE_CATALOGS)).toBeInTheDocument();
-  });
-
-  test("a refused search draws the Host's words and can be asked again", async () => {
-    let refused = false;
+  test("a failed TMDB search row draws PhoneAddonNotice with the Host's explanation and retries via session.feeds.more while leaving the other kind intact", async () => {
+    const failure: ActionError = { kind: "tmdb", detail: "TMDB answered with status 429" };
+    let movieAttempt = 0;
+    let sessionRef: Session | null = null;
     const { host } = mount({
-      snapshot: UNKEYED,
-      respond: () => {
-        if (!refused) {
-          refused = true;
-          return { kind: "query", detail: "the Host will not search for that" };
+      snapshot: WITH_KEY,
+      onSession: (session) => {
+        sessionRef = session;
+      },
+      respond: (action: Action): HostAnswer => {
+        if (action.type === "search_catalogs") {
+          return { snapshots: [], answer: { catalogs: [] } };
         }
-        return { snapshots: [], answer: { catalogs: [] } };
+        if (action.type === "search") {
+          if (action.kind === "movie") {
+            movieAttempt += 1;
+            if (movieAttempt === 1) {
+              return failure;
+            }
+          }
+          return {
+            snapshots: [],
+            answer: {
+              search: {
+                type: action.kind,
+                sent: 1,
+                metas: [
+                  action.kind === "series"
+                    ? hit("tmdb:s1", "Matrix Series", "series")
+                    : hit("tmdb:1", "The Matrix", "movie"),
+                ],
+                failure: null,
+              },
+            },
+          };
+        }
+        return { snapshots: [], answer: null };
       },
     });
-    await search("dune");
 
-    expect(await screen.findByRole("alert")).toHaveTextContent(
-      explain({ kind: "query", detail: "the Host will not search for that" }),
-    );
-    fireEvent.click(screen.getByRole("button", { name: "Search again" }));
+    await waitFor(() => expect(sessionRef).not.toBeNull());
+    const moreSpy = vi.spyOn(sessionRef!.feeds, "more");
 
-    await waitFor(() => expect(host.asked("search_catalogs")).toHaveLength(2));
-    expect(host.asked("search_catalogs")[1]).toEqual({
-      type: "search_catalogs",
-      query: "dune",
-    });
-  });
-});
+    await submitQuery("Matrix");
 
-/**
- * Search through the Remote's level stack (#264, #248 P1): the query, both rows
- * and the pages must come back from a grid, and a page read there must be in the
- * rail — not merely in the Session's store.
- */
-describe("Search and its grid, through the Remote's level stack", () => {
-  test("a page the grid reads is in the rails after Back, with the query kept", async () => {
-    const host = new FakeHost(KEYED, tmdb);
-    const view = render(<RemoteApp link={host} />);
-    try {
-      fireEvent.click(await screen.findByRole("button", { name: "Search" }));
-      const input = await screen.findByLabelText("Search for a Title");
-      fireEvent.change(input, { target: { value: "dune" } });
-      fireEvent.click(within(screen.getByRole("search")).getByRole("button", { name: "Search" }));
-      await screen.findByTestId("search-card-movie-tmdb:1");
+    const moviesRow = await screen.findByTestId("remote-search-row-movie");
+    const notice = await within(moviesRow).findByRole("status");
+    expect(notice).toHaveTextContent("TMDB");
+    expect(notice).toHaveTextContent(explain(failure));
 
-      fireEvent.click(screen.getByRole("button", { name: "More Movies" }));
-      expect(
-        await screen.findByTestId("search-grid-card-movie-tmdb:3"),
-        "the grid reads on by itself near its end",
-      ).toBeInTheDocument();
+    const seriesRow = screen.getByTestId("remote-search-row-series");
+    expect(await within(seriesRow).findByTestId("search-card-series-tmdb:s1")).toBeInTheDocument();
+    expect(within(seriesRow).queryByRole("button", { name: "Try again" })).not.toBeInTheDocument();
 
-      fireEvent.click(screen.getByRole("button", { name: "Back" }));
+    fireEvent.click(within(notice).getByRole("button", { name: "Try again" }));
 
-      expect(await screen.findByLabelText("Search for a Title")).toHaveValue("dune");
-      expect(
-        await screen.findByTestId("search-card-movie-tmdb:3"),
-        "the page the grid read is in the rail after Back",
-      ).toBeInTheDocument();
-      expect(
-        screen.getByTestId("search-card-series-tmdb:s1"),
-        "the other kind's row is still there",
-      ).toBeInTheDocument();
-    } finally {
-      view.unmount();
-    }
-  });
-
-  test("a page the rail read is in the grid, and Back asks no page 1 again", async () => {
-    const host = new FakeHost(KEYED, tmdb);
-    const view = render(<RemoteApp link={host} />);
-    try {
-      fireEvent.click(await screen.findByRole("button", { name: "Search" }));
-      const input = await screen.findByLabelText("Search for a Title");
-      fireEvent.change(input, { target: { value: "dune" } });
-      fireEvent.click(within(screen.getByRole("search")).getByRole("button", { name: "Search" }));
-      await screen.findByTestId("search-card-movie-tmdb:1");
-
-      const movies = screen.getByTestId("remote-search-row-movie");
-      fireEvent.click(within(movies).getByRole("button", { name: "Read on" }));
-      await screen.findByTestId("search-card-movie-tmdb:3");
-      const firstPages = host
-        .asked("search")
-        .filter((action) => action.kind === "movie" && action.page === 1).length;
-
-      fireEvent.click(screen.getByRole("button", { name: "More Movies" }));
-      expect(
-        await screen.findByTestId("search-grid-card-movie-tmdb:3"),
-        "the page the rail read is drawn by the grid",
-      ).toBeInTheDocument();
-      expect(
-        host
-          .asked("search")
-          .filter((action) => action.kind === "movie" && action.page === 1),
-        "the return and the grid ask no page 1 again",
-      ).toHaveLength(firstPages);
-
-      fireEvent.click(screen.getByRole("button", { name: "Back" }));
-      expect(await screen.findByTestId("search-card-movie-tmdb:3")).toBeInTheDocument();
-    } finally {
-      view.unmount();
-    }
+    expect(moreSpy).toHaveBeenCalledWith(searchFeedKey("Matrix", "movie"));
+    expect(await within(moviesRow).findByTestId("search-card-movie-tmdb:1")).toBeInTheDocument();
+    expect(within(moviesRow).queryByRole("button", { name: "Try again" })).not.toBeInTheDocument();
+    expect(host.asked("search")).toEqual([
+      { type: "search", query: "Matrix", kind: "movie", page: 1 },
+      { type: "search", query: "Matrix", kind: "series", page: 1 },
+      { type: "search", query: "Matrix", kind: "movie", page: 1 },
+    ]);
   });
 });

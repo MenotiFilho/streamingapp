@@ -30,9 +30,8 @@ describe("the Remote's page surface", () => {
   test("every other level keeps the scrolling page", () => {
     expect(pageSurface("discover", "streams")).toBe("overlay");
     expect(pageSurface("settings", "settings")).toBe("overlay");
-    expect(pageSurface("search", "grid")).toBe("overlay");
     expect(pageSurface("home", "confirm")).toBe("overlay");
-    // The language sheet sits over Preferences, which is itself a scrolling page.
-    expect(pageSurface("settings", "language-sheet")).toBe("overlay");
+    expect(pageSurface("settings", "settings-pref")).toBe("overlay");
+    expect(pageSurface("addons", "addon-details")).toBe("overlay");
   });
 });

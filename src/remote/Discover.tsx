@@ -1,394 +1,424 @@
-import { useEffect, useMemo, useRef, useSyncExternalStore } from "react";
-
-import { keyOf, pageable } from "../core/browse";
 import {
-  DISCOVER_GENRES,
-  DISCOVER_ROWS,
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+  useSyncExternalStore,
+  type ReactNode,
+  type Ref,
+} from "react";
+
+import {
   blankFeed,
-  discoverAsk,
-  discoverFeedKey,
-  discoverNoCounterpart,
-  discoverPlayable,
-  discoverReads,
-  genreFilterFor,
-  type DiscoverGenreChoice,
+  feedState,
   type DiscoverKind,
 } from "../core/discover";
-import { programIndex, rowTag } from "../core/homeProgramme";
+import { explain } from "../core/errors";
+import { gridPaging, type PageState } from "../core/gridPaging";
+import {
+  DISCOVER_TYPES,
+  INITIAL_DISCOVER_FILTERS,
+  discoverEmptyCopy,
+  discoverGenreOptions,
+  discoverGridBody,
+  discoverNoKeyCopy,
+  discoverReadOnCopy,
+  discoverSortOptions,
+  marqueeDiscoverRead,
+  marqueeTmdbUnplayable,
+  reconcileDiscoverFilters,
+  type DiscoverSortKey,
+} from "../core/marqueeDiscover";
 import type { NewLevel } from "../core/navigation";
+import { useGridEnd } from "../core/react/useGridEnd";
 import type { Session, SessionState } from "../core/session";
 import type { MetaPreview } from "../core/wire";
-import { ChoiceChip } from "../kit/Chip";
-import { PosterCard } from "../kit/PosterCard";
-import { RemoteRail } from "./RemoteRail";
-import { MoreControl, PagingControl, RowNote } from "./RemoteRow";
-import {
-  NO_CREDENTIAL_NOTE,
-  catalogNote,
-  catalogsOf,
-  discoverNote,
-  discoverTag,
-  feedTitle,
-  noCatalogState,
-} from "./discoverScreen";
-import { feedMore, feedPhase } from "./feed";
-import { gridLevel } from "./grid";
+import { Dropdown } from "../kit/marquee/Dropdown";
+import { EmptyState } from "../kit/marquee/EmptyState";
+import { PhoneAddonNotice } from "../kit/marquee/phone/PhoneAddonNotice";
+import { PhonePoster } from "../kit/marquee/phone/PhonePoster";
 import { titleLevelOf, type RemotePayload } from "./levels";
 
+type OpenMenu = "type" | "genre" | "sort" | null;
+
 export type DiscoverProps = {
-  /** The Session the asks go through, and the Titles it learned are unplayable. */
   session: Session;
-  /** What the Host last published: the credential, the Addons, the marks. */
   state: SessionState;
-  /** A press on a card pushes the Title level B6 will draw. */
   push: (level: NewLevel<RemotePayload>) => string;
+  openSettings?: () => void;
 };
 
-/**
- * Discover, in a hand (#207, ADR-0036 §1).
- *
- * Two arms, and which one is drawn is the Host's fact: with a TMDB Credential
- * the screen shows one genre row — the union of TMDB's film and series lists —
- * then two rows, Movies and Series, each asked and paged on its own. Without a
- * credential it draws the Addons' own Catalog rows through `browse_catalog` —
- * the only rows a Host with no credential can answer. A credential gained or
- * cleared is a new pair of rows: the arm is a different question, so the old
- * one's filter goes.
- *
- * The rows and the chosen genre live in the Session (#264): a Title or a grid
- * is a pushed level that unmounts this screen, and Back must return to the same
- * rows at the same page, without asking page 1 again. Both arms share their
- * rows with the row's own grid, so a page read in a grid is in the rail after
- * Back.
- *
- * A press opens a Title and nothing more: a Discovered Title carries no Addon
- * (TMDB named it before any Addon did), and B6 owns the request itself.
- */
-export function Discover({ session, state, push }: DiscoverProps) {
+export function Discover({ session, state, push, openSettings }: DiscoverProps) {
   const snapshot = state.snapshot;
-  // Which arm a person gets is the Host's fact. Before the first Snapshot it is
-  // not a guess to make: the screen waits rather than asking the wrong Host.
-  const credential = snapshot ? snapshot.protection.tmdbHeld : null;
-  const genreKey = useSyncExternalStore(
-    session.discoverGenre.subscribe,
-    session.discoverGenre.get,
+  const feeds = useSyncExternalStore(
+    session.feeds.subscribe,
+    session.feeds.getSnapshot,
+  );
+  const filters = useSyncExternalStore(
+    session.discoverFilters.subscribe,
+    session.discoverFilters.get,
   );
 
-  // A credential gained or cleared is a new pair of rows: the filters of the
-  // last arm are not filters of this one. The first Snapshot only settles which
-  // arm this is; it is not a change from one arm to the other.
-  const previous = useRef<boolean | null>(null);
+  const keyed = snapshot?.protection.tmdbHeld ?? false;
+  const [openMenu, setOpenMenu] = useState<OpenMenu>(null);
+  const filtersRef = useRef<HTMLDivElement | null>(null);
+
+  const genres = useMemo(
+    () => discoverGenreOptions("host", filters.kind),
+    [filters.kind],
+  );
+  const sorts = useMemo(
+    () => discoverSortOptions("host", filters.kind),
+    [filters.kind],
+  );
+
+  const selectedGenre =
+    genres.find((option) => option.id === filters.genreId) ?? genres[0]!;
+  const selectedSort =
+    sorts.find((option) => option.id === filters.sortId) ?? sorts[0]!;
+
   useEffect(() => {
-    if (credential === null) {
+    const next = reconcileDiscoverFilters({
+      nextKind: filters.kind,
+      genreId: filters.genreId,
+      sortId: filters.sortId,
+      source: "host",
+    });
+    if (next.genreId !== filters.genreId || next.sortId !== filters.sortId) {
+      session.discoverFilters.set(next);
+    }
+  }, [filters.genreId, filters.kind, filters.sortId, session]);
+
+  useEffect(() => {
+    if (openMenu === null) {
       return;
     }
-    if (previous.current !== null && previous.current !== credential) {
-      session.discoverGenre.set(null);
+    const onPointerDown = (event: PointerEvent) => {
+      if (
+        filtersRef.current &&
+        event.target instanceof Node &&
+        !filtersRef.current.contains(event.target)
+      ) {
+        setOpenMenu(null);
+      }
+    };
+    window.addEventListener("pointerdown", onPointerDown);
+    return () => window.removeEventListener("pointerdown", onPointerDown);
+  }, [openMenu]);
+
+  const readPlan = useMemo(
+    () =>
+      keyed
+        ? marqueeDiscoverRead({
+            source: "host",
+            kind: filters.kind,
+            genre: selectedGenre,
+            sort: selectedSort,
+            previewAddonId: "",
+          })
+        : null,
+    [filters.kind, keyed, selectedGenre, selectedSort],
+  );
+
+  const hadKey = useRef<boolean | null>(null);
+  useEffect(() => {
+    if (snapshot === null) {
+      return;
     }
-    previous.current = credential;
-  }, [credential, session]);
+    if (hadKey.current === false && keyed) {
+      session.discoverFilters.set(INITIAL_DISCOVER_FILTERS);
+    }
+    hadKey.current = keyed;
+  }, [keyed, session, snapshot]);
 
-  const genre =
-    genreKey === null
-      ? null
-      : (DISCOVER_GENRES.find((choice) => !choice.all && choice.name === genreKey) ?? null);
-  const chooseGenre = (next: DiscoverGenreChoice | null) =>
-    session.discoverGenre.set(next?.name ?? null);
+  useEffect(() => {
+    if (!readPlan || session.discoverFilters.get() !== filters) {
+      return;
+    }
+    session.feeds.read(readPlan.key, readPlan.first, readPlan.next);
+  }, [filters, readPlan, session]);
 
-  const open = (addon: string | null, meta: MetaPreview) => {
-    push(titleLevelOf(addon, meta));
+  const watchedFilmKeys = useMemo(() => {
+    const set = new Set<string>();
+    for (const entry of snapshot?.watchProgress ?? []) {
+      if (entry.watched && entry.title.type === "movie") {
+        set.add(`${entry.title.type}:${entry.title.id}`);
+      }
+    }
+    return set;
+  }, [snapshot?.watchProgress]);
+
+  const feed = (readPlan ? feeds.rows.get(readPlan.key) : null) ?? blankFeed();
+  const reading = readPlan !== null && feeds.reading.has(readPlan.key);
+  const stateOf = feedState(feed, reading);
+  const body = discoverGridBody(feed, stateOf);
+  const paging = gridPaging({
+    done: feed.done,
+    failure: feed.failure,
+    pageable: true,
+    reading,
+    count: feed.items.length,
+  });
+
+  const pageTarget: PageState | null = readPlan !== null ? paging.page : null;
+  const gridRef = useGridEnd({
+    count: feed.items.length,
+    page: pageTarget,
+    reading: paging.reading,
+    onReach: () => {
+      if (readPlan !== null) {
+        session.feeds.more(readPlan.key);
+      }
+    },
+  });
+
+  const pickKind = (nextKind: DiscoverKind) => {
+    setOpenMenu(null);
+    session.discoverFilters.set(
+      reconcileDiscoverFilters({
+        nextKind,
+        genreId: filters.genreId,
+        sortId: filters.sortId,
+        source: "host",
+      }),
+    );
   };
 
+  const pickGenre = (genreId: string) => {
+    setOpenMenu(null);
+    session.discoverFilters.set({ ...filters, genreId });
+  };
+
+  const pickSort = (sortId: string) => {
+    setOpenMenu(null);
+    session.discoverFilters.set({
+      ...filters,
+      sortId: sortId as DiscoverSortKey,
+    });
+  };
+
+  const openMeta = (meta: MetaPreview) => {
+    push(titleLevelOf(null, meta));
+  };
+
+  const noKeyCopy = discoverNoKeyCopy();
+  const emptyCopy = discoverEmptyCopy(selectedGenre);
+  const readOnCopy = discoverReadOnCopy();
+
   return (
-    <section className="remote-discover" data-testid="remote-discover">
-      <header className="remote-screen-head">
-        <h1 className="remote-screen-title">Discover</h1>
-        <span className="remote-screen-rule" aria-hidden="true" />
+    <section
+      className="mq-remote-screen"
+      aria-label="Discover"
+      data-testid="remote-discover"
+    >
+      <header className="mq-remote-large-head">
+        <div className="mq-remote-large-head-titles">
+          <h1 className="mq-remote-large-title">Discover</h1>
+          {keyed ? <p className="mq-remote-large-subtitle">From TMDB</p> : null}
+        </div>
       </header>
 
-      {credential === null ? null : credential ? (
-        <KeyedDiscover
-          session={session}
-          state={state}
-          genre={genre}
-          genreKey={genreKey}
-          chooseGenre={chooseGenre}
-          open={open}
-          push={push}
-        />
+      {snapshot === null ? (
+        <p className="mq-remote-waiting" role="status">
+          Waiting for the Host…
+        </p>
+      ) : !keyed ? (
+        <div data-testid="discover-no-key">
+          <EmptyState
+            icon="compass"
+            title={noKeyCopy.title}
+            body={noKeyCopy.body}
+            action={
+              openSettings
+                ? { label: "Open Settings", onPress: openSettings }
+                : undefined
+            }
+          />
+        </div>
       ) : (
-        <CatalogDiscover
-          session={session}
-          state={state}
-          open={open}
-          push={push}
-        />
+        <>
+          <div className="mq-remote-filters" ref={filtersRef} data-testid="discover-filters">
+            <Dropdown
+              label="Type"
+              hideLabel
+              open={openMenu === "type"}
+              onOpenChange={(next) => setOpenMenu(next ? "type" : null)}
+              options={DISCOVER_TYPES.map((item) => ({ id: item.id, label: item.label }))}
+              selected={filters.kind}
+              onSelect={(id) => pickKind(id as DiscoverKind)}
+            />
+            <Dropdown
+              label="Genre"
+              hideLabel
+              open={openMenu === "genre"}
+              onOpenChange={(next) => setOpenMenu(next ? "genre" : null)}
+              options={genres.map((item) => ({ id: item.id, label: item.label }))}
+              selected={selectedGenre.id}
+              onSelect={pickGenre}
+            />
+            <Dropdown
+              label="Sort"
+              hideLabel
+              open={openMenu === "sort"}
+              onOpenChange={(next) => setOpenMenu(next ? "sort" : null)}
+              options={sorts.map((item) => ({ id: item.id, label: item.label }))}
+              selected={selectedSort.id}
+              onSelect={pickSort}
+            />
+          </div>
+
+          <DiscoverGridBodyView
+            body={body}
+            metas={feed.items}
+            gridRef={gridRef as Ref<HTMLDivElement>}
+            reading={reading}
+            failureReason={feed.failure ? explain(feed.failure) : null}
+            emptyCopy={emptyCopy}
+            readOnCopy={readOnCopy}
+            watchedFilmKeys={watchedFilmKeys}
+            unplayable={state.unplayable}
+            addons={snapshot.addons}
+            kind={filters.kind}
+            onOpen={openMeta}
+            onRetry={() => {
+              if (readPlan !== null) {
+                session.feeds.more(readPlan.key);
+              }
+            }}
+            onReadOn={() => {
+              if (readPlan !== null) {
+                session.feeds.more(readPlan.key);
+              }
+            }}
+          />
+        </>
       )}
     </section>
   );
 }
 
-/**
- * Discover over TMDB: one genre row, then Movies and Series, each a feed asked
- * page by page. A genre is a different pair of rows in the Session's feed store
- * and asks page 1 of each kind it has a counterpart in; a kind with no
- * counterpart keeps its row, drawn empty with a line saying why. Each row's
- * quiet head action asks the page after what was read, or the page that failed,
- * and the cards already read keep their place either way (`feedWith`). The
- * row's More card opens the same row as a whole-row grid, which reads on by
- * itself (#264).
- */
-function KeyedDiscover({
-  session,
-  state,
-  genre,
-  genreKey,
-  chooseGenre,
-  open,
-  push,
+function DiscoverGridBodyView({
+  body,
+  metas,
+  gridRef,
+  reading,
+  failureReason,
+  emptyCopy,
+  readOnCopy,
+  watchedFilmKeys,
+  unplayable,
+  addons,
+  kind,
+  onOpen,
+  onRetry,
+  onReadOn,
 }: {
-  session: Session;
-  state: SessionState;
-  genre: DiscoverGenreChoice | null;
-  genreKey: string | null;
-  chooseGenre: (genre: DiscoverGenreChoice | null) => void;
-  open: (addon: string | null, meta: MetaPreview) => void;
-  push: (level: NewLevel<RemotePayload>) => string;
+  body: ReturnType<typeof discoverGridBody>;
+  metas: readonly MetaPreview[];
+  gridRef: Ref<HTMLDivElement>;
+  reading: boolean;
+  failureReason: string | null;
+  emptyCopy: { title: string; body: string };
+  readOnCopy: { title: string; body: string; actionLabel: string };
+  watchedFilmKeys: ReadonlySet<string>;
+  unplayable: ReadonlySet<string>;
+  addons: Parameters<typeof marqueeTmdbUnplayable>[0];
+  kind: DiscoverKind;
+  onOpen: (meta: MetaPreview) => void;
+  onRetry: () => void;
+  onReadOn: () => void;
 }) {
-  const snapshot = state.snapshot;
-  const feeds = useSyncExternalStore(session.feeds.subscribe, session.feeds.getSnapshot);
+  let content: ReactNode = null;
 
-  // A genre asks page 1 of each kind with a counterpart; the Session store
-  // joins a page already in flight and never asks an answered row again. Which
-  // rows to read is the core's one decision (`discoverReads`), shared with the
-  // window; `genreFilterFor` itself decides what no chip means.
-  useEffect(() => {
-    const reads = discoverReads("host", genre, (kind, page, filter) =>
-      discoverAsk({
-        kind,
-        page,
-        genre: filter.kind === "id" ? filter.id : null,
-      }),
+  if (body === "loading") {
+    content = (
+      <p className="mq-remote-waiting" role="status" data-testid="discover-loading">
+        Reading Discover…
+      </p>
     );
-    for (const read of reads) {
-      session.feeds.read(read.key, read.first, read.next);
-    }
-  }, [genre, genreKey, session]);
-
-  const openGrid = (kind: DiscoverKind, index: string) => {
-    const key = discoverFeedKey("host", genreKey, kind);
-    const feed = feeds.rows.get(key);
-    if (!feed || feed.items.length === 0) {
-      return;
-    }
-    push(
-      gridLevel({
-        title: feedTitle(kind),
-        index,
-        tag: discoverTag(kind, genre?.name ?? null, feed.items.length),
-        addon: null,
-        source: {
-          kind: "discover",
-          feedKind: kind,
-          genreKey,
-          feedKey: key,
-        },
-      }),
-    );
-  };
-
-  return (
-    <>
-      <div className="remote-filters" role="group" aria-label="Genres">
-        <ChoiceChip pressed={genre === null} onClick={() => chooseGenre(null)}>
-          All genres
-        </ChoiceChip>
-        {DISCOVER_GENRES.filter((choice) => !choice.all).map((choice) => (
-          <ChoiceChip
-            key={choice.name}
-            pressed={genre?.name === choice.name}
-            onClick={() => chooseGenre(choice)}
-          >
-            {choice.name}
-          </ChoiceChip>
-        ))}
+  } else if (body === "empty") {
+    content = (
+      <div data-testid="discover-empty">
+        <EmptyState icon="compass" title={emptyCopy.title} body={emptyCopy.body} />
       </div>
-
-      <div className="remote-page-panel">
-        {DISCOVER_ROWS.map(({ kind }, at) => {
-          const key = discoverFeedKey("host", genreKey, kind);
-          const feed = feeds.rows.get(key) ?? blankFeed();
-          const loading = feeds.reading.has(key);
-          const filter = genreFilterFor(genre, kind);
-          const none = filter.kind === "none";
-          const phase = feedPhase(feed, loading);
-          const couldPlay = snapshot ? discoverPlayable(snapshot.addons, kind) : true;
-          const title = feedTitle(kind);
-          const index = programIndex(at + 1);
-          const quiet =
-            none && genre !== null
-              ? discoverNoCounterpart(kind, genre.name)
-              : discoverNote(phase, genre?.name ?? null);
-
-          return (
-            <RemoteRail
-              key={kind}
-              index={index}
-              title={title}
-              tag={
-                none ? null : discoverTag(kind, genre?.name ?? null, feed.items.length)
-              }
-              testId={`remote-discover-row-${kind}`}
-              note={<RowNote failure={feed.failure} quiet={quiet} />}
-              action={
-                <PagingControl
-                  failure={feed.failure}
-                  more={feedMore(feed)}
-                  loading={loading}
-                  onMore={() => session.feeds.more(key)}
-                />
-              }
-              more={
-                feed.items.length > 0 ? (
-                  <MoreControl label={title} onOpen={() => openGrid(kind, index)} />
-                ) : null
-              }
-            >
-              {feed.items.map((meta) => (
-                <PosterCard
-                  key={meta.id}
+    );
+  } else if (body === "read-on") {
+    content = (
+      <div data-testid="discover-read-on">
+        <EmptyState
+          icon="compass"
+          title={readOnCopy.title}
+          body={readOnCopy.body}
+          action={{ label: readOnCopy.actionLabel, onPress: onReadOn }}
+        />
+      </div>
+    );
+  } else if (body === "cards") {
+    content = (
+      <>
+        <div className="mq-remote-grid" data-testid="discover-grid">
+          {metas.map((meta) => {
+            const watched = watchedFilmKeys.has(`${meta.type}:${meta.id}`);
+            const isUnplayable = marqueeTmdbUnplayable(
+              addons,
+              kind,
+              unplayable,
+              meta.id,
+            );
+            return (
+              <div
+                key={meta.id}
+                className="mq-remote-poster-slot"
+                data-grid-card="true"
+                data-watched={watched || undefined}
+                data-unplayable={isUnplayable || undefined}
+              >
+                <PhonePoster
                   name={meta.name}
                   poster={meta.poster}
-                  rating={meta.imdbRating?.trim() || null}
-                  subtitle={meta.releaseInfo}
-                  unplayable={!couldPlay || state.unplayable.has(meta.id)}
                   testId={`discover-card-${meta.id}`}
-                  onClick={() => open(null, meta)}
+                  onPress={() => onOpen(meta)}
                 />
-              ))}
-            </RemoteRail>
-          );
-        })}
-      </div>
-    </>
-  );
-}
+                {isUnplayable ? (
+                  <span className="mq-remote-poster-badge" aria-hidden="true">
+                    Unplayable
+                  </span>
+                ) : watched ? (
+                  <span
+                    className="mq-remote-poster-badge"
+                    data-tone="accent"
+                    aria-hidden="true"
+                  >
+                    Watched
+                  </span>
+                ) : null}
+              </div>
+            );
+          })}
+        </div>
 
-/**
- * Discover with no TMDB Credential: the Addons' own Catalog rows of both kinds,
- * in the Addons' order, each asked page by page. The genre row is TMDB's and
- * stays away — an Addon's `genre` values are the Addon's own, and sending
- * TMDB's ids for them would be a second table that lies (ADR-0010, ADR-0020).
- *
- * The rows are the Session's Home store because they are the same Catalog rows
- * Home reads (#264): a grid opened here pages that row, and the rail after Back
- * draws the page, exactly as Home's whole-row grid does.
- */
-function CatalogDiscover({
-  session,
-  state,
-  open,
-  push,
-}: {
-  session: Session;
-  state: SessionState;
-  open: (addon: string | null, meta: MetaPreview) => void;
-  push: (level: NewLevel<RemotePayload>) => string;
-}) {
-  const snapshot = state.snapshot;
-  const catalogs = useMemo(() => catalogsOf(snapshot), [snapshot]);
-  const featured = snapshot?.featuredCatalog ?? null;
-  const featuredKey = featured
-    ? keyOf({ addon: featured.addon, type: featured.catalog.type, id: featured.catalog.id })
-    : null;
-  const { rows, paging } = useSyncExternalStore(
-    session.home.subscribe,
-    session.home.getSnapshot,
-  );
-
-  // The Catalogs are a new set of rows: the store asks page 1 of each in the
-  // Addons' order, joining any ask already in flight. A return after a level
-  // paints what the Session already holds and re-asks the rows that failed,
-  // exactly as a return to Home does (#264, ADR-0020).
-  useEffect(() => {
-    session.home.enter();
-  }, [session]);
-
-  useEffect(() => {
-    session.home.sync(catalogs, featuredKey);
-  }, [session, catalogs, featuredKey]);
-
-  if (catalogs.length === 0) {
-    const empty = noCatalogState();
-    return (
-      <div className="remote-empty" data-testid="discover-no-catalogs">
-        <h2 className="remote-empty-title">{empty.title}</h2>
-        <p className="remote-empty-body">{empty.body}</p>
-      </div>
+        {reading ? (
+          <p className="mq-remote-grid-status" role="status">
+            Reading on…
+          </p>
+        ) : null}
+      </>
     );
   }
 
   return (
-    <>
-      <p className="remote-quiet">{NO_CREDENTIAL_NOTE}</p>
-      <div className="remote-page-panel">
-        {rows.map((row, index) => {
-          const key = keyOf(row);
-          return (
-            <RemoteRail
-              key={key}
-              index={programIndex(index + 1)}
-              title={row.name}
-              tag={rowTag(snapshot, row)}
-              testId={`discover-row-${key}`}
-              note={<RowNote failure={row.failure} quiet={catalogNote(row)} />}
-              action={
-                <PagingControl
-                  failure={row.failure}
-                  more={
-                    pageable(snapshot, row) &&
-                    !row.done &&
-                    (row.offset > 0 || row.failure !== null)
-                  }
-                  loading={paging.has(key)}
-                  onMore={() => session.home.page(key)}
-                />
-              }
-              more={
-                row.metas.length > 0 ? (
-                  <MoreControl
-                    label={row.name}
-                    onOpen={() =>
-                      push(
-                        gridLevel({
-                          title: row.name,
-                          index: programIndex(index + 1),
-                          tag: rowTag(snapshot, row),
-                          addon: row.addon,
-                          source: { kind: "home", rowKey: key },
-                        }),
-                      )
-                    }
-                  />
-                ) : null
-              }
-            >
-              {row.metas.map((meta) => (
-                <PosterCard
-                  key={meta.id}
-                  name={meta.name}
-                  poster={meta.poster}
-                  rating={meta.imdbRating?.trim() || null}
-                  subtitle={meta.releaseInfo}
-                  unplayable={state.unplayable.has(meta.id)}
-                  testId={`discover-card-${meta.id}`}
-                  onClick={() => open(row.addon, meta)}
-                />
-              ))}
-            </RemoteRail>
-          );
-        })}
-      </div>
-    </>
+    <div ref={gridRef}>
+      {content}
+      {failureReason ? (
+        <div className="mq-remote-row-notice" data-testid="discover-failure">
+          <PhoneAddonNotice
+            title="Discover"
+            reason={failureReason}
+            disabled={reading}
+            onRetry={onRetry}
+          />
+        </div>
+      ) : null}
+    </div>
   );
 }

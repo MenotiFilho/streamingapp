@@ -85,16 +85,18 @@ export function PhoneButton({
   );
 }
 
-/** A 28px mark: a Stream's own words, or UP NEXT and PLAYING in lavender. */
+/** A 28px mark: a Stream's own words, or UP NEXT / PLAYING in lavender. */
 export function PhoneBadge({
   tone = "neutral",
+  className,
   children,
-}: {
-  tone?: "neutral" | "accent";
+  ...span
+}: ComponentPropsWithoutRef<"span"> & {
+  tone?: "neutral" | "accent" | "danger";
   children: ReactNode;
 }) {
   return (
-    <span className="mq-ph-badge" data-tone={tone}>
+    <span {...span} className={cx("mq-ph-badge", className)} data-tone={tone}>
       {children}
     </span>
   );

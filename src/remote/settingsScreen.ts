@@ -4,6 +4,7 @@ import {
   FOLLOW_THE_FILE_AUDIO_LINE,
   FOLLOW_THE_FILE_SUBTITLE_LINE,
 } from "../core/languages";
+import { PREFERENCE_SUB_LEVELS, type PreferenceSubLevelId } from "../core/marqueeSettings";
 import type { NewLevel } from "../core/navigation";
 import {
   CREDENTIALS_CATEGORY,
@@ -145,47 +146,18 @@ export const LANGUAGE_FOLLOW_LINES: Record<LanguageKind, string> = {
 };
 
 /**
- * The sheet a field's ▾ opens (#330, ADR-0035 §2): a level, so the phone's
- * system Back puts it away (ADR-0034). One id per list, so a second press
- * replaces it and a single Back leaves.
+ * The preference sub-level a row in Preferences pushes.
  */
-export function languageSheetLevel(kind: LanguageKind): NewLevel<RemotePayload> {
+export function preferenceSubLevel(
+  subLevel: PreferenceSubLevelId,
+): NewLevel<RemotePayload> {
+  const meta = PREFERENCE_SUB_LEVELS[subLevel];
   return {
-    id: `language-sheet-${kind}`,
-    name: LANGUAGE_GROUP_HEADS[kind],
-    kind: "popover",
-    payload: { kind: "language-sheet", list: kind },
+    id: meta.levelId,
+    name: meta.title,
+    kind: "overlay",
+    payload: { kind: "settings-pref", subLevel },
   };
-}
-
-/** How long a chip is held before it is picked up: about half a second. */
-export const LONG_PRESS_MS = 500;
-
-/** How far a finger may drift while held and still be holding (CSS pixels). */
-export const LONG_PRESS_SLOP = 8;
-
-/** What a press on a chip has become. */
-export type PressVerdict = "wait" | "drag" | "scroll";
-
-/**
- * Whether a press on a chip is a drag yet (#330, story 18).
- *
- * A phone's finger lands on a chip all the time on the way to scrolling the
- * page, so a drag starts only on a long press: held about half a second without
- * travelling. A move before that is a swipe — the page scrolls and the chip is
- * never picked up — and a release before it is a tap, which is no drag either.
- */
-export function pressVerdict({
-  heldMs,
-  travelled,
-}: {
-  heldMs: number;
-  travelled: number;
-}): PressVerdict {
-  if (heldMs >= LONG_PRESS_MS) {
-    return "drag";
-  }
-  return travelled > LONG_PRESS_SLOP ? "scroll" : "wait";
 }
 
 export function colorRequest(color: string): Action {

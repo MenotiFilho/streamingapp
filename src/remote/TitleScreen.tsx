@@ -1,36 +1,37 @@
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 
 import { actionKey } from "../core/actionKey";
 import { answeredTitle } from "../core/answers";
 import { explain, type ActionError } from "../core/errors";
 import { addonLabel } from "../core/home";
-import { programIndex } from "../core/homeProgramme";
+import {
+  episodeAirNote,
+  episodeProgress,
+  titleActionsModel,
+  titleBackdropCandidates,
+} from "../core/marqueeTitle";
 import type { NewLevel } from "../core/navigation";
 import { useRevisedTitle } from "../core/react/useRevisedTitle";
 import type { Session, SessionState } from "../core/session";
-import { theFilm } from "../core/stream";
 import {
-  airsNote,
-  labelOf,
   nameOf,
   seasonName,
-  titleArtOf,
   type Season,
 } from "../core/title";
 import {
-  titleAnchor,
   titleFacts,
-  titleMainAction,
   titleMainPress,
   titlePlayOutcome,
-  titleSide,
   unmappedOf,
-  type TitleAnchor,
 } from "../core/titlePage";
-import type { Title, Video } from "../core/wire";
-import { Button } from "../kit/Button";
-import { Chip, ChoiceChip } from "../kit/Chip";
-import { Icon } from "../kit/icons";
+import type { Title } from "../core/wire";
+import { useArtChain } from "../kit/marquee/cards";
+import { Chip } from "../kit/marquee/Chip";
+import { EmptyState } from "../kit/marquee/EmptyState";
+import { GroupLabel } from "../kit/marquee/GroupLabel";
+import { PhoneEpisodeRow } from "../kit/marquee/phone/PhoneEpisodeRow";
+import { PhoneHeader } from "../kit/marquee/phone/PhoneHeader";
+import { PhoneButton, PhoneIconButton } from "../kit/marquee/phone/controls";
 import type { RemotePayload, RemoteTitle } from "./levels";
 import { playerLevel } from "./playerScreen";
 import {
@@ -47,37 +48,17 @@ import {
 } from "./titleScreen";
 
 export type TitleScreenProps = {
-  /** The level this screen is drawn on: the id an answer replaces. */
   levelId: string;
-  /** The card the level was pushed with: what it asks by, and its fallback name. */
   card: RemoteTitle;
-  /** The Host's answered Title, where this level already holds one. */
   answer: Title | null;
-  /** The Session the one question goes through. */
   session: Session;
-  /** What the Host last published: the Addon that supplied the Title. */
   state: SessionState;
-  /** Push a level, which is how a Play opens the Streams list. */
   push: (level: NewLevel<RemotePayload>) => string;
+  pop?: () => void;
 };
 
-/**
- * The Title level, in a hand (#210, ADR-0035 §1).
- *
- * A card pushes this level with its identity and no Title. On the first mount
- * the level asks the Host the one question the card names — `open_title` for an
- * Addon's card, `open_discovered_title` for a Discovered Title (ADR-0020) — and
- * re-pushes *the same level id* with the answer, so a Streams level above it and
- * a Back find the Title on the stack instead of asking again. One level id is
- * asked once; a refusal is the Host's own words with a way to ask again, and a
- * loading level names the card it is opening.
- *
- * What the page is, once answered, is the core's (`titleFacts`, `titleSide`,
- * `unmappedOf`, `theFilm`, `titleAnchor`, `titleMainAction`); this file only
- * draws it at hand scale. A Play pushes the Streams list; the main Resume takes
- * the Host's own `resume` and opens the player card on the Stream it starts
- * (#275).
- */
+const STICKY_HEADER_SCROLL = 260;
+
 export function TitleScreen({
   levelId,
   card,
@@ -85,23 +66,17 @@ export function TitleScreen({
   session,
   state,
   push,
+  pop,
 }: TitleScreenProps) {
   const [waiting, setWaiting] = useState(
     answer === null && titleOpenAction(card) !== null,
   );
   const [failure, setFailure] = useState<ActionError | null>(null);
   const [empty, setEmpty] = useState(false);
-  // A person can leave the level while the Host is still answering. The answer
-  // then belongs to a level that is no longer on the stack, and pushing it
-  // would bring the Title back over the destination the person returned to.
+
   const alive = useRef(true);
-  // One question per level id: a re-push with the answer remounts this screen
-  // with nothing to ask, and a second render is not a second arrival.
   const asked = useRef<string | null>(null);
 
-  // `StrictMode` runs an effect, cleans it up and runs it again without
-  // unmounting the component, so the mount effect re-arms this: a dev render
-  // must not discard the answer the second run is waiting for.
   useEffect(() => {
     alive.current = true;
     return () => {
@@ -114,10 +89,9 @@ export function TitleScreen({
     if (action === null) {
       return;
     }
-    setWaiting(true);
     setFailure(null);
     setEmpty(false);
-
+    setWaiting(true);
     const outcome = await session.ask(action);
     if (!alive.current) {
       return;
@@ -127,19 +101,16 @@ export function TitleScreen({
       setFailure(outcome.error);
       return;
     }
-    const title = answeredTitle(outcome.response);
-    if (title === null) {
+    const resolved = answeredTitle(outcome.response);
+    if (!resolved) {
       setEmpty(true);
       return;
     }
-    push(answeredTitleLevel(card, title, levelId));
+    push(answeredTitleLevel(card, resolved, levelId));
   }, [card, levelId, push, session]);
 
   useEffect(() => {
-    if (answer !== null || asked.current === levelId) {
-      return;
-    }
-    if (titleOpenAction(card) === null) {
+    if (answer !== null || asked.current === levelId || titleOpenAction(card) === null) {
       return;
     }
     asked.current = levelId;
@@ -148,129 +119,152 @@ export function TitleScreen({
 
   if (answer !== null) {
     return (
-      <TitlePage
+      <AnsweredTitleView
         card={card}
         title={answer}
         session={session}
         state={state}
         push={push}
+        pop={pop}
       />
     );
   }
 
   return (
     <section
-      className="remote-title-level"
+      className="mq-remote-title-level"
       aria-label={card.name}
-      data-testid="remote-title"
+      data-testid="remote-title-screen"
     >
-      <h1 className="remote-title-name">{card.name}</h1>
+      {pop ? <PhoneHeader title={card.name} onBack={pop} /> : null}
 
-      {failure ? (
-        <>
-          <p role="alert" className="remote-failure">
-            {explain(failure)}
-          </p>
-          <Button variant="primary" onClick={() => void open()}>
-            {TITLE_RETRY}
-          </Button>
-        </>
-      ) : empty ? (
-        <>
-          <p role="status" className="remote-quiet">
-            {TITLE_NO_ANSWER}
-          </p>
-          <Button variant="primary" onClick={() => void open()}>
-            {TITLE_RETRY}
-          </Button>
-        </>
+      {titleOpenAction(card) === null ? (
+        <EmptyState
+          icon="film"
+          title={card.name}
+          body={TITLE_UNOPENABLE}
+        />
       ) : waiting ? (
-        <p role="status" className="remote-quiet">
+        <p className="mq-remote-waiting" role="status" data-testid="title-loading">
           {TITLE_LOOKING}
         </p>
-      ) : (
-        <p role="status" className="remote-quiet">
-          {TITLE_UNOPENABLE}
-        </p>
-      )}
+      ) : failure ? (
+        <EmptyState
+          icon="triangle-alert"
+          title={`Could not open ${card.name}`}
+          body={explain(failure)}
+          action={{ label: TITLE_RETRY, onPress: () => void open() }}
+        />
+      ) : empty ? (
+        <EmptyState
+          icon="film"
+          title={card.name}
+          body={TITLE_NO_ANSWER}
+          action={{ label: TITLE_RETRY, onPress: () => void open() }}
+        />
+      ) : null}
     </section>
   );
 }
 
-/**
- * The Title as the page draws it: the backdrop, the wordmark or name, the facts,
- * the description, the attribution and the one thing a person does next.
- */
-function TitlePage({
+function AnsweredTitleView({
   card,
   title: answered,
   session,
   state,
   push,
+  pop,
 }: {
   card: RemoteTitle;
   title: Title;
   session: Session;
   state: SessionState;
   push: (level: NewLevel<RemotePayload>) => string;
+  pop?: () => void;
 }) {
-  // A background refresh may answer this Title again while the level is open
-  // (ADR-0038 §2). The revision replaces what is drawn only while it is still
-  // this Title; the decision and the subscription are the core's.
   const title = useRevisedTitle(answered, session);
+  const snapshot = state.snapshot;
+  const fallback = cardPreviewOf(card);
+  const name = nameOf(title, fallback);
 
-  const preview = cardPreviewOf(card);
-  const name = nameOf(title, preview);
-  const art = titleArtOf(title, preview);
-  const facts = titleFacts(title, null);
-  const side = titleSide(title);
-  const suppliedBy = title.addon ? addonLabel(state.snapshot, title.addon) : null;
-  const continueWatching = state.snapshot?.continueWatching ?? [];
-  const anchor = titleAnchor(title, continueWatching);
-  const main = titleMainAction(
+  const continueWatching = snapshot?.continueWatching ?? [];
+  const watchProgress = snapshot?.watchProgress ?? [];
+  const upNextPlayback = snapshot?.preferences.upNextPlayback ?? "direct";
+  const suppliedBy = title.addon ? addonLabel(snapshot, title.addon) : null;
+  const isUnmapped = unmappedOf(title);
+  const facts = useMemo(() => titleFacts(title), [title]);
+
+  const backdropChain = useMemo(
+    () => titleBackdropCandidates(title, null),
+    [title],
+  );
+  const [backdropSrc, failBackdrop] = useArtChain(backdropChain);
+  const [logoSrc, failLogo] = useArtChain([title.logo]);
+
+  const initialModel = titleActionsModel({
     title,
     continueWatching,
-    state.snapshot?.preferences.upNextPlayback ?? "direct",
+    upNextPlayback,
+  });
+  const seasons = initialModel.side.kind === "series" ? initialModel.side.seasons : [];
+  const [chosenSeason, setChosenSeason] = useState<number | null>(
+    initialModel.anchor.season,
   );
-  const press = titleMainPress(main);
-  // The wait is the Session's pending key for the one Action this control
-  // would send (ADR-0027): a picker Play asks nothing, so it never waits.
-  const mainPending =
-    press !== null && press.kind !== "picker" && state.pending.has(actionKey(press.action));
+  const shownSeason: Season | undefined =
+    seasons.find((season) => season.season === chosenSeason) ?? seasons[0];
+  const selectedVideo =
+    (initialModel.anchor.video &&
+    shownSeason?.videos.some((video) => video.id === initialModel.anchor.video?.id)
+      ? initialModel.anchor.video
+      : shownSeason?.videos[0]) ?? null;
 
-  /**
-   * The one main control: Resume takes the Host's own `resume` and opens the
-   * player card; Play takes the Host's `play_up_next`, which continues the
-   * release of the episode before; and a picker Play pushes the Streams for
-   * the Up next Video itself (#276). The ladder is the core's.
-   */
-  const takeMain = async () => {
-    if (press === null) {
+  const model = titleActionsModel({
+    title,
+    continueWatching,
+    upNextPlayback,
+    selectedVideo,
+  });
+  const { main, chooseStream } = model;
+  const press = titleMainPress(main);
+  const waiting =
+    press !== null &&
+    press.kind !== "picker" &&
+    state.pending.has(actionKey(press.action));
+
+  const [playError, setPlayError] = useState<ActionError | null>(null);
+  const [compactHeader, setCompactHeader] = useState(false);
+
+  useEffect(() => {
+    const onScroll = () => {
+      setCompactHeader(window.scrollY >= STICKY_HEADER_SCROLL);
+    };
+    onScroll();
+    window.addEventListener("scroll", onScroll, { passive: true });
+    return () => window.removeEventListener("scroll", onScroll);
+  }, []);
+
+  const triggerMain = async () => {
+    if (!press || waiting) {
       return;
     }
+    setPlayError(null);
     if (press.kind === "picker") {
       push(streamsLevelFor(title, press.video));
       return;
     }
     if (press.kind === "resume") {
-      // Resume is a Change like any other: the Host starts the Stream at its
-      // saved position, and the card is where the playing Stream is driven.
       if (await session.take(press.action)) {
         push(playerLevel(title));
       }
       return;
     }
-
-    // Play is the Host's own continuity choice. When no Stream continues the
-    // release, the client opens the picker for the Up next instead (#276);
-    // any other refusal is the Remote's one alert.
     const { response, error } = await session.ask(press.action);
     switch (titlePlayOutcome(error)) {
       case "picker":
         push(streamsLevelFor(title, press.video));
         return;
       case "report":
-        session.report(error);
+        setPlayError(error);
         return;
       case "played":
         if (response) {
@@ -280,223 +274,182 @@ function TitlePage({
     }
   };
 
+  const today = useMemo(() => new Date(), []);
+  const factsLine = useMemo(() => facts.map((item) => item.text).join(" · "), [facts]);
+
+  const stickySubtitle =
+    [title.releaseInfo, title.genres[0]].filter(Boolean).join(" · ") || undefined;
+
   return (
     <section
-      className="remote-title-level"
+      className="mq-remote-title-level"
       aria-label={name}
-      data-testid="remote-title"
+      data-testid="remote-title-screen"
     >
-      <article className="remote-title" data-testid="remote-title-page">
-        <div
-          className="remote-title-backdrop"
-          data-art={art.kind}
-          aria-hidden="true"
-        >
-          {art.src ? (
-            <img className="remote-title-art" src={art.src} alt="" loading="lazy" />
+      <div className="mq-remote-title-top">
+        {pop && compactHeader ? (
+          <div className="mq-remote-title-sticky" data-testid="title-sticky-header">
+            <PhoneHeader title={name} subtitle={stickySubtitle} onBack={pop} />
+          </div>
+        ) : pop ? (
+          <PhoneIconButton
+            icon="arrow-left"
+            label="Back"
+            kind="secondary"
+            size="l"
+            className="mq-remote-title-back"
+            onClick={pop}
+          />
+        ) : null}
+      </div>
+
+      <div className="mq-remote-title-hero">
+        {backdropSrc ? (
+          <img
+            src={backdropSrc}
+            alt=""
+            className="mq-remote-title-hero-art"
+            onError={() => {
+              if (backdropSrc) {
+                failBackdrop(backdropSrc);
+              }
+            }}
+          />
+        ) : null}
+        <span className="mq-remote-title-hero-scrim-top" aria-hidden="true" />
+        <span className="mq-remote-title-hero-scrim-bottom" aria-hidden="true" />
+      </div>
+
+      <div className="mq-remote-title-hero-copy">
+        {logoSrc ? (
+          <>
+            <img
+              src={logoSrc}
+              alt={name}
+              className="mq-remote-title-logo"
+              onError={() => {
+                if (logoSrc) {
+                  failLogo(logoSrc);
+                }
+              }}
+            />
+            <h1 className="mq-remote-visually-hidden">{name}</h1>
+          </>
+        ) : (
+          <h1 className="mq-remote-title-name">{name}</h1>
+        )}
+
+        {factsLine ? (
+          <p className="mq-remote-title-facts" data-testid="title-facts">
+            {factsLine}
+          </p>
+        ) : null}
+      </div>
+
+      <div className="mq-remote-title-body">
+        <div className="mq-remote-title-actions">
+          {main ? (
+            <PhoneButton
+              kind="primary"
+              icon="play"
+              filled
+              disabled={waiting}
+              data-testid="title-main-action"
+              onClick={() => void triggerMain()}
+            >
+              {waiting ? "Starting…" : main.label}
+            </PhoneButton>
           ) : null}
-          <span className="remote-title-scrim" />
+
+          {chooseStream ? (
+            <PhoneButton
+              kind={chooseStream.primary ? "primary" : "secondary"}
+              icon="episodes"
+              data-testid="title-choose-stream"
+              onClick={() => push(streamsLevelFor(title, chooseStream.video))}
+            >
+              {chooseStream.primary ? FIND_STREAMS : "Choose stream"}
+            </PhoneButton>
+          ) : null}
         </div>
 
-        <div className="remote-title-copy">
-          {title.logo ? (
-            <img className="remote-title-logo" src={title.logo} alt={name} />
-          ) : (
-            <h1 className="remote-title-name">{name}</h1>
-          )}
+        {playError ? (
+          <p role="alert" className="mq-remote-inline-error">
+            {explain(playError)}
+          </p>
+        ) : null}
 
-          {facts.length > 0 ? (
-            <div className="remote-title-facts" aria-label="Facts">
-              {facts.map((fact) => (
-                <span
-                  key={`${fact.role}:${fact.text}`}
-                  className="remote-title-fact"
-                  data-role={fact.role}
+        {title.description ? (
+          <p className="mq-remote-title-synopsis" data-testid="title-synopsis">
+            {title.description}
+          </p>
+        ) : null}
+
+        {suppliedBy ? (
+          <p className="mq-remote-title-meta-note" data-testid="title-source">
+            Supplied by {suppliedBy}
+          </p>
+        ) : null}
+
+        {isUnmapped ? (
+          <p className="mq-remote-title-meta-note" data-testid="title-unmapped">
+            {TITLE_UNMAPPED}
+          </p>
+        ) : null}
+
+        {seasons.length > 0 && shownSeason ? (
+          <div className="mq-remote-title-episodes" data-testid="title-episodes">
+            <div className="mq-remote-chips" role="tablist" aria-label="Seasons">
+              {seasons.map((season) => (
+                <Chip
+                  key={season.season}
+                  selected={season.season === shownSeason.season}
+                  data-testid={`season-${season.season}`}
+                  onClick={() => setChosenSeason(season.season)}
                 >
-                  {fact.text}
-                </span>
+                  {seasonName(season.season)}
+                </Chip>
               ))}
             </div>
-          ) : null}
 
-          {title.description ? (
-            <p className="remote-title-description">{title.description}</p>
-          ) : null}
+            <GroupLabel>
+              {`${seasonName(shownSeason.season)} · ${shownSeason.videos.length} ${shownSeason.videos.length === 1 ? "episode" : "episodes"}`}
+            </GroupLabel>
 
-          <div className="remote-title-attribution">
-            {suppliedBy ? <span>Supplied by {suppliedBy}</span> : null}
-            {unmappedOf(title) ? (
-              <Chip tone="accent" className="remote-title-unmapped">
-                {TITLE_UNMAPPED}
-              </Chip>
-            ) : null}
-          </div>
-        </div>
-
-        <aside className="remote-title-side" data-kind={side.kind}>
-          {main ? (
-            <Button
-              variant="primary"
-              className="remote-play remote-title-main"
-              data-testid="title-main"
-              pending={mainPending}
-              onClick={() => void takeMain()}
-            >
-              <Icon name="play" className="remote-play-mark" />
-              <span>{main.label}</span>
-            </Button>
-          ) : null}
-
-          {side.kind === "film" ? (
-            <Button
-              variant={main ? "secondary" : "primary"}
-              className="remote-play"
-              onClick={() => push(streamsLevelFor(title, theFilm(title)))}
-            >
-              <Icon name="play" className="remote-play-mark" />
-              <span>{FIND_STREAMS}</span>
-            </Button>
-          ) : side.kind === "series-empty" ? (
-            <div className="remote-title-empty-series">
-              <p className="remote-title-kicker">{side.kicker}</p>
-              <p className="remote-title-note">{side.note}</p>
+            <div className="mq-remote-episodes-list">
+              {shownSeason.videos.map((video) => {
+                const epNum = video.episode ?? 1;
+                const epCode =
+                  video.season !== null && video.episode !== null
+                    ? `S${video.season} E${video.episode}`
+                    : undefined;
+                const epProgress = episodeProgress(video.id, watchProgress);
+                return (
+                  <div key={video.id} data-testid={`episode-${video.id}`}>
+                    <PhoneEpisodeRow
+                      number={`Episode ${epNum}`}
+                      title={video.name?.trim() || (epCode ?? video.id)}
+                      date={episodeAirNote(video, today)}
+                      description={video.description}
+                      still={video.thumbnail}
+                      code={epCode}
+                      progress={epProgress.progress}
+                      onPress={() => push(streamsLevelFor(title, video))}
+                    />
+                  </div>
+                );
+              })}
             </div>
-          ) : (
-            <SeriesProgram
-              title={title}
-              seasons={side.seasons}
-              anchor={anchor}
-              push={push}
-            />
-          )}
-        </aside>
-      </article>
-    </section>
-  );
-}
-
-/**
- * A series' side: the season chips, the episodes of the chosen season, the one
- * episode chosen, and the Play that opens its Streams. Which season is folded
- * out and which episode is chosen are this client's own state (ADR-0005); a
- * season change chooses that season's first episode, so Play always has one.
- */
-function SeriesProgram({
-  title,
-  seasons,
-  anchor,
-  push,
-}: {
-  title: Title;
-  seasons: Season[];
-  /** The Continue watching Video the Title opened on, where it has one. */
-  anchor: TitleAnchor;
-  push: (level: NewLevel<RemotePayload>) => string;
-}) {
-  const [season, setSeason] = useState<number | null>(anchor.season);
-  const [chosen, setChosen] = useState<Video | null>(
-    anchor.video ?? seasons[0]?.videos[0] ?? null,
-  );
-  const chosenRef = useRef<HTMLButtonElement | null>(null);
-  const shown =
-    seasons.find((held) => held.season === season) ?? seasons[0];
-  // The machine's own day; `airsNote` is the pure decision (#269).
-  const today = new Date();
-
-  // The anchored episode is shown and brought into view on the one scrollport
-  // the page has, so a person lands where the card left them (CONTEXT.md,
-  // *Up next*). jsdom and a browser without the method simply keep the scroll.
-  useEffect(() => {
-    chosenRef.current?.scrollIntoView?.({ block: "nearest" });
-  }, [anchor.video?.id]);
-
-  const chooseSeason = (next: number | null) => {
-    setSeason(next);
-    setChosen(
-      seasons.find((held) => held.season === next)?.videos[0] ?? null,
-    );
-  };
-
-  return (
-    <section className="remote-title-program" aria-label="Seasons and episodes">
-      <div className="remote-title-seasons">
-        {seasons.map(({ season: value }, index) => (
-          <ChoiceChip
-            key={value ?? "unnumbered"}
-            className="remote-season"
-            data-testid={`season-${value ?? "unnumbered"}`}
-            pressed={shown?.season === value}
-            onClick={() => chooseSeason(value)}
-          >
-            <span>{programIndex(index + 1)}</span>
-            <span>{seasonName(value)}</span>
-          </ChoiceChip>
-        ))}
+          </div>
+        ) : initialModel.side.kind === "series-empty" ? (
+          <div className="mq-remote-title-empty-series">
+            <p className="mq-remote-title-empty-kicker">{initialModel.side.kicker}</p>
+            <p className="mq-remote-title-meta-note" data-testid="title-no-videos">
+              {initialModel.side.note}
+            </p>
+          </div>
+        ) : null}
       </div>
-
-      <div className="remote-title-episodes">
-        {shown?.videos.map((video) => {
-          const label = labelOf(video);
-          const airs = airsNote(video, today);
-          return (
-            <button
-              key={video.id}
-              type="button"
-              className="remote-episode"
-              data-focusable
-              data-testid={`episode-${video.id}`}
-              ref={anchor.video?.id === video.id ? chosenRef : undefined}
-              aria-pressed={chosen?.id === video.id}
-              // An episode is a Video like any other: pressing it opens its
-              // Streams, as the window does. Choosing it without opening it
-              // left the one control a person expects to find behind another
-              // press (#215).
-              onClick={() => {
-                setChosen(video);
-                push(streamsLevelFor(title, video));
-              }}
-            >
-              {video.thumbnail ? (
-                <img
-                  className="remote-episode-still"
-                  src={video.thumbnail}
-                  alt=""
-                  loading="lazy"
-                />
-              ) : (
-                <span className="remote-episode-plate">{label ?? "Video"}</span>
-              )}
-              <span className="remote-episode-copy">
-                {video.thumbnail ? (
-                  <span className="remote-episode-label">{label ?? "Video"}</span>
-                ) : null}
-                <span className="remote-episode-name">
-                  {video.name ?? video.id}
-                </span>
-                {airs ? (
-                  <span className="remote-episode-airs" data-testid="episode-airs">
-                    {airs}
-                  </span>
-                ) : null}
-              </span>
-            </button>
-          );
-        })}
-      </div>
-
-      <Button
-        variant="primary"
-        className="remote-play"
-        disabled={chosen === null}
-        onClick={() => {
-          if (chosen) {
-            push(streamsLevelFor(title, chosen));
-          }
-        }}
-      >
-        <Icon name="play" className="remote-play-mark" />
-        <span>{FIND_STREAMS}</span>
-      </Button>
     </section>
   );
 }

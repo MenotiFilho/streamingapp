@@ -553,7 +553,7 @@ describe("the Remote's Autoplay drawings", () => {
     expect(pushesPicker(none, missing, "player")).toBe(true);
     expect(pushesPicker(none, missing, null), "the Home screen").toBe(false);
     expect(pushesPicker(none, missing, "title"), "a Title").toBe(false);
-    expect(pushesPicker(none, missing, "grid"), "a browse grid").toBe(false);
+    expect(pushesPicker(none, missing, "addon-details"), "Addon details").toBe(false);
     expect(pushesPicker(none, missing, "settings"), "Settings").toBe(false);
     expect(pushesPicker(none, missing, "sheet"), "a plate over the card").toBe(false);
     expect(pushesPicker(none, missing, "streams"), "a list already open").toBe(false);
