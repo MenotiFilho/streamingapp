@@ -1,0 +1,345 @@
+/*
+ * Marquee Title & Streams styles (#360, `05.jpg`, `06.jpg`, `docs/design-system.md`).
+ *
+ * Uses `--mq-*` tokens and `src/kit/marquee/` primitives exclusively.
+ * Zero `--rep-*` tokens; zero literal lavender values outside `--mq-accent`.
+ */
+
+/* --------------------------------------------------------------------------
+ * Shared backdrop & scrims (`titleBase` in `build.js`)
+ * -------------------------------------------------------------------------- */
+
+.mq-title-backdrop {
+  position: absolute;
+  inset: 0;
+  z-index: 0;
+  overflow: hidden;
+  background: var(--mq-canvas);
+  pointer-events: none;
+}
+
+.mq-title-backdrop-img {
+  display: block;
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+}
+
+.mq-title-scrim {
+  position: absolute;
+  pointer-events: none;
+}
+
+.mq-title-scrim--left {
+  top: 0;
+  bottom: 0;
+  left: 0;
+  width: calc(var(--mq-u) * 1400);
+  background: linear-gradient(
+    to right,
+    color-mix(in srgb, var(--mq-canvas) 95%, transparent) 0%,
+    color-mix(in srgb, var(--mq-canvas) 72%, transparent) 45%,
+    transparent 100%
+  );
+}
+
+.mq-title-scrim--bottom {
+  top: calc(var(--mq-u) * 400);
+  right: 0;
+  bottom: 0;
+  left: 0;
+  background: linear-gradient(
+    to top,
+    var(--mq-canvas) 0%,
+    color-mix(in srgb, var(--mq-canvas) 90%, transparent) 35%,
+    transparent 100%
+  );
+}
+
+.mq-streams-dim {
+  position: absolute;
+  inset: 0;
+  background: color-mix(in srgb, var(--mq-ink) 30%, transparent);
+}
+
+/* --------------------------------------------------------------------------
+ * Title screen (`05.jpg`)
+ * -------------------------------------------------------------------------- */
+
+.mq-title-screen {
+  position: relative;
+  min-height: 100%;
+  width: 100%;
+  overflow-x: hidden;
+  background: var(--mq-canvas);
+  color: var(--mq-text);
+  font-family: var(--mq-font);
+  line-height: var(--mq-leading);
+}
+
+.mq-title-content {
+  position: relative;
+  z-index: 1;
+  box-sizing: border-box;
+  display: flex;
+  flex-direction: column;
+  padding: calc(var(--mq-u) * 40) var(--mq-margin-full) calc(var(--mq-u) * 32);
+}
+
+.mq-title-top {
+  display: flex;
+  align-items: center;
+  margin-bottom: calc(var(--mq-u) * 16);
+}
+
+.mq-title-heading {
+  display: flex;
+  align-items: flex-end;
+  max-width: calc(var(--mq-u) * 640);
+  height: calc(var(--mq-u) * 140);
+  margin: 0;
+}
+
+.mq-title-logo {
+  display: block;
+  max-width: 100%;
+  max-height: 100%;
+  object-fit: contain;
+  object-position: left bottom;
+}
+
+.mq-title-name {
+  display: -webkit-box;
+  overflow: hidden;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 2;
+  font-size: var(--mq-text-screen-title);
+  font-weight: var(--mq-weight-extrabold);
+  line-height: var(--mq-leading);
+}
+
+.mq-title-meta {
+  margin-top: calc(var(--mq-u) * 20);
+}
+
+.mq-title-synopsis {
+  display: -webkit-box;
+  overflow: hidden;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 3;
+  max-width: calc(var(--mq-u) * 760);
+  margin: calc(var(--mq-u) * 14) 0 0;
+  color: var(--mq-text-muted);
+  font-size: var(--mq-text-body);
+  font-weight: var(--mq-weight-medium);
+  line-height: var(--mq-leading-body);
+}
+
+.mq-title-attribution {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: calc(var(--mq-u) * 12);
+  margin-top: calc(var(--mq-u) * 10);
+  color: var(--mq-text-faint);
+  font-size: var(--mq-text-caption-sm);
+}
+
+.mq-title-unmapped {
+  color: var(--mq-text-muted);
+}
+
+.mq-title-actions {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: calc(var(--mq-u) * 14);
+  margin-top: calc(var(--mq-u) * 22);
+  min-height: calc(var(--mq-u) * 60);
+}
+
+.mq-title-series {
+  display: flex;
+  flex-direction: column;
+  gap: calc(var(--mq-u) * 12);
+  margin-top: calc(var(--mq-u) * 28);
+}
+
+.mq-title-seasons {
+  display: flex;
+  align-items: center;
+  gap: calc(var(--mq-u) * 12);
+  overflow-x: auto;
+  scrollbar-width: none;
+  padding: calc(var(--mq-u) * 6) 0;
+}
+
+.mq-title-seasons::-webkit-scrollbar {
+  display: none;
+}
+
+.mq-title-episodes {
+  display: flex;
+  align-items: flex-start;
+  gap: calc(var(--mq-u) * 32);
+  overflow-x: auto;
+  overflow-y: visible;
+  scrollbar-width: none;
+  margin: calc(var(--mq-u) * -12) calc(var(--mq-margin-full) * -1) 0;
+  padding: calc(var(--mq-u) * 24) var(--mq-margin-full) calc(var(--mq-u) * 24);
+  scroll-padding-left: var(--mq-margin-full);
+  scroll-padding-right: var(--mq-margin-full);
+}
+
+.mq-title-episodes::-webkit-scrollbar {
+  display: none;
+}
+
+.mq-title-episode-item {
+  display: flex;
+  flex: none;
+  flex-direction: column;
+}
+
+.mq-title-empty-series {
+  margin-top: calc(var(--mq-u) * 40);
+  max-width: calc(var(--mq-u) * 640);
+}
+
+.mq-title-empty-kicker {
+  margin: 0 0 calc(var(--mq-u) * 6);
+  font-size: var(--mq-text-label);
+  font-weight: var(--mq-weight-bold);
+}
+
+.mq-title-empty-note,
+.mq-title-loading-note {
+  margin: calc(var(--mq-u) * 12) 0 0;
+  color: var(--mq-text-muted);
+  font-size: var(--mq-text-body);
+}
+
+/* --------------------------------------------------------------------------
+ * Streams screen (`06.jpg`)
+ * -------------------------------------------------------------------------- */
+
+.mq-streams-screen {
+  position: relative;
+  width: 100%;
+  height: 100%;
+  overflow: hidden;
+  background: var(--mq-canvas);
+  color: var(--mq-text);
+  font-family: var(--mq-font);
+  line-height: var(--mq-leading);
+}
+
+.mq-streams-subject {
+  position: relative;
+  z-index: 1;
+  box-sizing: border-box;
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+  height: 100%;
+  max-width: calc(var(--mq-u) * 840);
+  padding: calc(var(--mq-u) * 72) calc(var(--mq-u) * 48) calc(var(--mq-u) * 72)
+    calc(var(--mq-u) * 120);
+}
+
+.mq-streams-logo-box {
+  display: flex;
+  align-items: flex-end;
+  max-width: calc(var(--mq-u) * 640);
+  max-height: calc(var(--mq-u) * 170);
+  margin-bottom: calc(var(--mq-u) * 28);
+}
+
+.mq-streams-logo {
+  display: block;
+  max-width: 100%;
+  max-height: calc(var(--mq-u) * 170);
+  object-fit: contain;
+  object-position: left bottom;
+}
+
+.mq-streams-overline {
+  margin: 0 0 calc(var(--mq-u) * 8);
+  color: var(--mq-accent);
+  font-size: var(--mq-text-control);
+  font-weight: var(--mq-weight-bold);
+}
+
+.mq-streams-heading {
+  margin: 0;
+  font-size: var(--mq-text-screen-title);
+  font-weight: var(--mq-weight-extrabold);
+  line-height: var(--mq-leading);
+}
+
+.mq-streams-panel-slot {
+  position: absolute;
+  top: calc(var(--mq-u) * 24);
+  right: calc(var(--mq-u) * 24);
+  bottom: calc(var(--mq-u) * 24);
+  z-index: 2;
+  display: flex;
+  max-width: calc(100% - var(--mq-u) * 48);
+}
+
+.mq-streams-panel-slot .mq-pp-panel[data-placement="side"] {
+  height: 100%;
+}
+
+.mq-streams-filter {
+  display: flex;
+  flex-wrap: nowrap;
+  align-items: center;
+  gap: calc(var(--mq-u) * 10);
+  overflow-x: auto;
+  scrollbar-width: none;
+  padding: calc(var(--mq-u) * 4) 0 calc(var(--mq-u) * 8);
+}
+
+.mq-streams-filter::-webkit-scrollbar {
+  display: none;
+}
+
+.mq-streams-group {
+  display: flex;
+  flex-direction: column;
+  gap: calc(var(--mq-u) * 11);
+  margin-top: calc(var(--mq-u) * 14);
+}
+
+.mq-streams-list {
+  display: flex;
+  flex-direction: column;
+  gap: calc(var(--mq-u) * 12);
+  list-style: none;
+  margin: 0;
+  padding: 0;
+}
+
+.mq-streams-note {
+  margin: 0;
+  color: var(--mq-text-faint);
+  font-size: var(--mq-text-caption);
+}
+
+.mq-streams-status {
+  margin: calc(var(--mq-u) * 12) 0 0;
+  color: var(--mq-text-muted);
+  font-size: var(--mq-text-caption);
+}
+
+.mq-streams-empty {
+  margin: auto 0;
+  padding: calc(var(--mq-u) * 32) 0;
+}
+
+.mq-streams-loading {
+  margin: calc(var(--mq-u) * 24) 0 0;
+  color: var(--mq-text-muted);
+  font-size: var(--mq-text-body);
+}

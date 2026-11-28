@@ -1,6 +1,13 @@
 import { destinationLabel } from "../../core/navigation";
 import type { Destination } from "../navigation";
 import { MarqueeHome } from "./MarqueeHome";
+export { MarqueeStreamsLoader, MarqueeStreamsScreen } from "./MarqueeStreams";
+export {
+  MarqueeTitleLoading,
+  MarqueeTitleScreen,
+  marqueeTitleLevelOf,
+  useMarqueeTitleOpener,
+} from "./MarqueeTitle";
 
 function MarqueePlaceholder({ destination }: { destination: Exclude<Destination, "home"> }) {
   const title = destinationLabel(destination);
